@@ -28,6 +28,7 @@ from interpreter import run
 from typechecker import proven_properties, collect_facts
 import ast_nodes as A
 import smt_prove as SMT
+import option_c as C
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -222,25 +223,39 @@ def metric5(ast):
 
 # ---------------- прогон ----------------
 
-def run_task(name, gen_fn, bootstrap, ns):
+def run_task(key, name, gen_fn, bootstrap, ns):
     print(f"\n### Задача: {name}\n")
-    print(f"| N | M1 (EVOL/Py токены) | M2 рекомб. % (K) | M4 ток/шаг | M5 стат | M5-SMT |")
-    print(f"|---|---|---|---|---|---|")
+    print(f"| N | M1 EVOL/Py | M1 EVOL/Rust | M2 % (K) | M4 ток/шаг | M5 стат | M5-SMT | M3 (Hc/Hb) |")
+    print(f"|---|---|---|---|---|---|---|---|")
     for n in ns:
         evol_src, py_src = gen_fn(n)
-        # EVOL
         ast = parse(evol_src, f"{name}_{n}")
         global _ast_src
         _ast_src = evol_src
         t_e = evol_tokens(evol_src)
-        # Python baseline
         t_p = python_tokens(py_src)
         m1 = t_e / t_p if t_p > 0 else float("inf")
+        # второй baseline — Rust
+        rust_src = C.RUST.get(key)
+        if rust_src:
+            t_r = C.rust_tokens(rust_src(n))
+            m1_r = t_e / t_r if t_r > 0 else float("inf")
+            m1_r_s = f"{t_e}/{t_r} = {m1_r:.3f}"
+        else:
+            m1_r_s = "—"
         m2_pct, k = metric2(ast)
         m4, steps = metric4(ast, bootstrap)
         m5, _, _ = metric5(ast)
         m5smt, _ = SMT.smt_properties(ast)
-        print(f"| {n} | {t_e}/{t_p} = {m1:.3f} | {m2_pct:.0f}% (K={k}) | {m4:.2f} ({steps} шагов) | {m5} | {m5smt} |")
+        # M3: 2+ независимые реализации (forall vs explicit), только для малых N
+        if n <= 100 and key in C.EXPLICIT:
+            evol_variants = [evol_src, C.EXPLICIT[key][0](n)]
+            py_variants = [py_src, C.EXPLICIT[key][1](n)]
+            hc, hb, ratio = C.metric3(evol_variants, py_variants)
+            m3_s = f"{ratio:.3f}"
+        else:
+            m3_s = "—"
+        print(f"| {n} | {t_e}/{t_p} = {m1:.3f} | {m1_r_s} | {m2_pct:.0f}% (K={k}) | {m4:.2f} ({steps} шагов) | {m5} | {m5smt} | {m3_s} |")
     print()
 
 
@@ -248,11 +263,11 @@ def main():
     ns_small = [10, 100, 1000]
     ns_full = [10, 100, 1000, 10000]
 
-    run_task("1: Event dispatcher (цепочка зависимостей)", gen_dispatcher,
+    run_task("dispatcher", "1: Event dispatcher (цепочка зависимостей)", gen_dispatcher,
              ["boot"], ns_full)
-    run_task("2: State machine (N состояний, guards)", gen_statemachine,
+    run_task("statemachine", "2: State machine (N состояний, guards)", gen_statemachine,
              ["boot"], ns_small)
-    run_task("3: Data pipeline (N стадий)", gen_pipeline,
+    run_task("pipeline", "3: Data pipeline (N стадий)", gen_pipeline,
              ["boot"], ns_small)
     # задача 4 — фиксированный размер, не масштабируем
     evol_src, py_src = gen_di(50)
@@ -270,6 +285,9 @@ def main():
     print("\n--- Форма кривой M1(N) ---")
     print("Если отношение EVOL/Py ~ константа -> плоская/линейная (хорошо).")
     print("Если растёт сверхлинейно -> гипотеза 'просто и сильно на больших функциях' НЕ подтверждена.")
+    print("\n--- M3 (синтаксическая энтропия) ---")
+    print("M3 = Hc/Hb (энтропия кандидата / baseline). Ниже baseline -> хорошо.")
+    print("Зоны: <0.7 (~ -30%) хорошо; <0.5 (~ -50%) отлично; >1.0 (выше baseline) плохо.")
 
 
 if __name__ == "__main__":
