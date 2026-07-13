@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ast_nodes import (
     Int, Float, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
     Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, ForEach,
-    TryCatch, Raise, Rule, Lib, Import,
+    TryCatch, Raise, Rule, Lib, Import, TypeExpr, TyCon, TyList, TyArrow,
 )
 
 from parser import parse
@@ -51,6 +51,11 @@ class TSym(Type):
 class TBool(Type):
     def __repr__(self):
         return "Bool"
+
+
+class TFloat(Type):
+    def __repr__(self):
+        return "Float"
 
 
 class TUnit(Type):
@@ -98,6 +103,65 @@ class TFun(Type):
 
 
 TINT, TSTR, TSYM, TBOOL, TUNIT, TTOP = TInt(), TStr(), TSym(), TBool(), TUnit(), TTop()
+TFLOAT = TFloat()
+
+# Модули стандартной библиотеки (типизуются как динамические: результат Top)
+MODULE_NAMES = {"console", "random", "file", "sim", "math", "string", "os"}
+
+
+def is_numeric(t):
+    return isinstance(t, (TInt, TFloat))
+
+
+def is_subtype(a, b):
+    """Подтип: TTop — верхний тип; Int <: Float; списки/кортежи поэлементно."""
+    if a is b:
+        return True
+    if b is TTOP:
+        return True
+    if a is TTOP:
+        return b is TTOP
+    if is_numeric(a) and is_numeric(b):
+        # Int <: Float, Float <: Float
+        return not (isinstance(a, TFloat) and isinstance(b, TInt))
+    if type(a) is type(b):
+        if isinstance(a, TList):
+            return is_subtype(a.elem, b.elem)
+        if isinstance(a, TTuple):
+            if len(a.items) != len(b.items):
+                return False
+            return all(is_subtype(x, y) for x, y in zip(a.items, b.items))
+        return True
+    return False
+
+
+def conv_type(te):
+    """Аннотация из AST -> внутренний Type (неизвестное имя -> TTop)."""
+    if te is None:
+        return TTOP
+    if isinstance(te, TyCon):
+        name = te.name
+        if name == "Int":
+            return TINT
+        if name == "Str":
+            return TSTR
+        if name == "Bool":
+            return TBOOL
+        if name == "Float":
+            return TFLOAT
+        if name == "Sym":
+            return TSYM
+        if name == "Top":
+            return TTOP
+        if name == "List":
+            return TList(TTOP)
+        return TTOP
+    if isinstance(te, TyList):
+        return TList(conv_type(te.elem))
+    if isinstance(te, TyArrow):
+        args = tuple(conv_type(a) for a in te.args)
+        return TFun(args, conv_type(te.ret))
+    return TTOP
 
 
 def builtin_type(name):
@@ -125,6 +189,15 @@ class TypeChecker:
 
     def err(self, node, msg):
         self.errors.append(f"{node.line}:{node.col} {msg}")
+
+    def _check_args(self, node, args, sig_args):
+        if len(args) != len(sig_args):
+            self.err(node, f"арность вызова: ожидалось {len(sig_args)}, дано {len(args)}")
+            return
+        for a, pt in zip(args, sig_args):
+            # постепенная типизация: проверяем только если оба типа известны
+            if a is not TTOP and pt is not TTOP and not is_subtype(a, pt):
+                self.err(node, f"аргумент {a} не совпадает с параметром {pt}")
 
     def _collect_names(self, decls, qualified, unqualified, lib=""):
         for d in decls:
@@ -156,8 +229,15 @@ class TypeChecker:
                 self.check_program(d.decls)
         return self.errors
 
+    def _bind_pattern(self, pat, env):
+        if isinstance(pat, Tuple):
+            for item in pat.items[1:]:
+                if isinstance(item, Name):
+                    env[item.value] = conv_type(item.ann)
+
     def check_rule(self, rule):
         env = {}
+        self._bind_pattern(rule.pat, env)
         self.check_eff(rule.body, env)
 
     def infer(self, expr, env):
@@ -165,7 +245,7 @@ class TypeChecker:
         if t is Int:
             return TINT
         if t is Float:
-            return TINT  # float treated as numeric
+            return TFLOAT
         if t is Str:
             return TSTR
         if t is Name:
@@ -183,10 +263,15 @@ class TypeChecker:
         if t is Fun:
             local = dict(env)
             params = []
-            for p in expr.params:
-                local[p] = TTOP
-                params.append(TTOP)
+            for p, ann in zip(expr.params, expr.param_anns):
+                pt = conv_type(ann)
+                local[p] = pt
+                params.append(pt)
             ret = self.infer(expr.body, local)
+            if expr.ret_ann is not None:
+                expected = conv_type(expr.ret_ann)
+                if not is_subtype(ret, expected):
+                    self.err(expr, f"тип результата функции {ret} не совпадает с {expected}")
             return TFun(tuple(params), ret)
         if t is UnaryOp:
             v = self.infer(expr.operand, env)
@@ -207,6 +292,8 @@ class TypeChecker:
                     return TSYM
                 self.err(expr, f".kind от {obj}")
                 return TTOP
+            if isinstance(expr.obj, Name) and expr.obj.value in MODULE_NAMES:
+                return TTOP  # атрибут модуля стандартной библиотеки
             self.err(expr, f"неизвестный атрибут .{expr.attr}")
             return TTOP
         if t is Index:
@@ -222,14 +309,18 @@ class TypeChecker:
             if isinstance(expr.func, Name) and builtin_type(expr.func.value) is not None:
                 sig = builtin_type(expr.func.value)
                 args = [self.infer(a, env) for a in expr.args]
-                if len(args) != len(sig.args):
-                    self.err(expr, f"арность вызова {expr.func.value}: ожидалось {len(sig.args)}, дано {len(args)}")
+                self._check_args(expr, args, sig.args)
                 return sig.ret
+            if isinstance(expr.func, GetAttr) and isinstance(expr.func.obj, Name) \
+                    and expr.func.obj.value in MODULE_NAMES:
+                # вызов модуля стандартной библиотеки: динамический (Top)
+                for a in expr.args:
+                    self.infer(a, env)
+                return TTOP
             func = self.infer(expr.func, env)
             args = [self.infer(a, env) for a in expr.args]
             if isinstance(func, TFun):
-                if len(args) != len(func.args):
-                    self.err(expr, f"арность вызова: ожидалось {len(func.args)}, дано {len(args)}")
+                self._check_args(expr, args, func.args)
                 return func.ret
             self.err(expr, f"вызов не-функции: {func}")
             return TTOP
@@ -241,11 +332,11 @@ class TypeChecker:
         r = self.infer(node.right, env)
         op = node.op
         if op in ("+", "-", "*", "/"):
-            if not (isinstance(l, TInt) and isinstance(r, TInt)):
-                self.err(node, f"арифметика требует Int, получено {l} {op} {r}")
-            return TINT
+            if not (is_numeric(l) and is_numeric(r)):
+                self.err(node, f"арифметика требует числовой тип, получено {l} {op} {r}")
+            return TFLOAT if (isinstance(l, TFloat) or isinstance(r, TFloat)) else TINT
         if op in ("==", "!=", "<", ">", "<=", ">="):
-            if type(l) != type(r) and not (isinstance(l, (TInt, TStr)) and isinstance(r, (TInt, TStr))):
+            if not (is_subtype(l, r) or is_subtype(r, l) or is_numeric(l) and is_numeric(r)):
                 self.err(node, f"сравнение несопоставимых: {l} {op} {r}")
             return TBOOL
         if op in ("and", "or"):
@@ -262,7 +353,13 @@ class TypeChecker:
                 self.check_eff(s, env)
         elif t is Assign:
             v = self.infer(node.value, env)
-            env[node.name] = v
+            if node.ann is not None:
+                expected = conv_type(node.ann)
+                if not is_subtype(v, expected):
+                    self.err(node, f"присваивание '{node.name}': ожидался {expected}, получен {v}")
+                env[node.name] = expected
+            else:
+                env[node.name] = v
         elif t is Emit:
             self.infer(node.value, env)
         elif t is Spawn:
@@ -301,6 +398,8 @@ class TypeChecker:
             local = dict(env)
             local[node.var] = coll.elem if isinstance(coll, TList) else TTOP
             self.check_eff(node.body, local)
+        elif t is Call:
+            self.infer(node, env)
         else:
             self.err(node, f"неизвестный eff {t}")
 

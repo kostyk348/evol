@@ -23,9 +23,45 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ast_nodes import (
     Int, Float, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
     Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, ForEach,
-    TryCatch, Raise, Rule, Lib, Import,
+    TryCatch, Raise, Rule, Lib, Import, TyCon, TyList,
 )
 from parser import parse
+
+
+# Флаг runtime-проверки аннотаций (Этап 7). По умолчанию выключен:
+# язык остаётся динамическим, аннотации влияют на статический тайпчекер.
+_ENFORCE_TYPES = False
+
+
+def set_enforce_types(on):
+    global _ENFORCE_TYPES
+    _ENFORCE_TYPES = bool(on)
+
+
+def _ann_match(ann, value):
+    """Проверка значения против аннотации типа (AST TypeExpr)."""
+    if ann is None:
+        return True
+    if isinstance(ann, TyCon):
+        n = ann.name
+        if n == "Int":
+            return isinstance(value, int) and not isinstance(value, bool)
+        if n == "Float":
+            return isinstance(value, (int, float)) and not isinstance(value, bool)
+        if n == "Str":
+            return isinstance(value, str)
+        if n == "Bool":
+            return isinstance(value, bool)
+        if n == "Sym":
+            return isinstance(value, Symbol)
+        if n == "List":
+            return isinstance(value, list)
+        return True  # Top / неизвестный -> пропускаем
+    if isinstance(ann, TyList):
+        if not isinstance(value, list):
+            return False
+        return all(_ann_match(ann.elem, v) for v in value)
+    return True
 
 
 class Symbol:
@@ -323,7 +359,7 @@ def evaluate(expr, sigma):
     if t is Tuple:
         return tuple(evaluate(i, sigma) for i in expr.items)
     if t is Fun:
-        return ("closure", expr.params, expr.body, dict(sigma))
+        return ("closure", expr.params, expr.body, expr.param_anns, dict(sigma))
     if t is UnaryOp:
         op = expr.op
         val = evaluate(expr.operand, sigma)
@@ -360,10 +396,14 @@ def evaluate(expr, sigma):
             args = [evaluate(a, sigma) for a in expr.args]
             return call_builtin(expr.func.value, args)
         if isinstance(func, tuple) and func[0] == "closure":
-            params, body, env = func[1], func[2], func[3]
+            params, body, param_anns, env = func[1], func[2], func[3], func[4]
             args = [evaluate(a, sigma) for a in expr.args]
             if len(args) != len(params):
                 raise InterpreterError(f"arity mismatch: {len(params)} vs {len(args)}")
+            if _ENFORCE_TYPES and param_anns and any(param_anns):
+                for a, ann in zip(args, param_anns):
+                    if ann is not None and not _ann_match(ann, a):
+                        raise EvalError(f"аргумент {a!r} не соответствует аннотации {ann}")
             local = dict(env)
             local.update(zip(params, args))
             return evaluate(body, local)
@@ -415,7 +455,10 @@ def eval_eff(node, sigma):
         return cur, emits, spawned, retracted
     if t is Assign:
         cur = dict(sigma)
-        cur[node.name] = evaluate(node.value, sigma)
+        val = evaluate(node.value, sigma)
+        if _ENFORCE_TYPES and node.ann is not None and not _ann_match(node.ann, val):
+            raise EvalError(f"присваивание '{node.name}': значение {val!r} не соответствует аннотации {node.ann}")
+        cur[node.name] = val
         return cur, [], [], set()
     if t is Emit:
         return sigma, [evaluate(node.value, sigma)], [], set()
@@ -551,7 +594,8 @@ def resolve_spawn(table, sp):
     return None
 
 
-def run(ast, bootstrap, max_steps=100000):
+def run(ast, bootstrap, max_steps=100000, enforce_types=False):
+    set_enforce_types(enforce_types)
     _sim_state["step"] = 0
     table = collect_rule_table(ast)
     q = []
@@ -579,6 +623,14 @@ def run(ast, bootstrap, max_steps=100000):
         r, bindings = cands[0]
         local = dict(sigma)
         local.update(bindings)
+        if _ENFORCE_TYPES and isinstance(r["pat"], Tuple):
+            for item in r["pat"].items[1:]:
+                if isinstance(item, Name) and item.ann is not None:
+                    v = local.get(item.value)
+                    if not _ann_match(item.ann, v):
+                        raise EvalError(
+                            f"сообщение: поле '{item.value}' {v!r} не соответствует аннотации {item.ann}"
+                        )
         new_sigma, emits, spawned, retracted = eval_eff(r["eff"], local)
         sigma = new_sigma
         for v in emits:
@@ -600,8 +652,8 @@ def run(ast, bootstrap, max_steps=100000):
     }
 
 
-def run_file(path, bootstrap):
+def run_file(path, bootstrap, enforce_types=False):
     with open(path, encoding="utf-8") as f:
         src = f.read()
     ast = parse(src, path)
-    return run(ast, bootstrap)
+    return run(ast, bootstrap, enforce_types=enforce_types)

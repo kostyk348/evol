@@ -26,6 +26,7 @@
 | Float | `lexer.py`..`compiler.py` | Тип `FLOAT` (динамический) в лексере/парсере/интерпретере/тийпчекере/компиляторе |
 | Error handling | `parser.py`, `interpreter.py` | `try/catch/raise` — ловит InterpreterError + EvalError |
 | Corpus #2 | `metrics/corpus2.py` | Held-out корпус (6 задач, seeds зафиксированы, без утечки) |
+| Этап 7 | `lexer.py`, `parser.py`, `ast_nodes.py`, `typechecker.py`, `interpreter.py`, `compiler.py` | **Аннотации типов**: статическая проверка (Int/Str/Bool/Float/Sym/List[T]/Top) + опциональная runtime-проверка через `enforce_types=True` |
 
 ---
 
@@ -38,9 +39,10 @@ python test_interpreter.py     # семантика, par, forall, квалифи
 python test_typechecker.py     # ошибки типов/spawn/import, M5
 python test_smt.py             # SMT-проверка гвардов (z3)
 python test_option_c.py        # Rust-baseline + M3 энтропия
-python test_stdlib.py          # модули: console, random, file, sim, math, string, os
-python test_repl.py            # REPL: hot reload, checkpoint, time
-python test_new_features.py    # FLOAT, try/catch/raise, math/string/os модули
+python test_stdlib.py        # модули: console, random, file, sim, math, string, os
+python test_repl.py          # REPL: hot reload, checkpoint, time
+python test_new_features.py  # FLOAT, try/catch/raise, math/string/os модули
+python test_types.py         # Этап 7: аннотации типов, статическая + runtime проверка
 python metrics/run_metrics.py  # полная таблица метрик (6 задач, прогон #1)
 python metrics/corpus2.py      # held-out корпус #2 (6 задач, без утечки)
 python repl.py                 # REPL: интерактивная оболочка
@@ -86,6 +88,47 @@ lib demo {
 ```
 
 ---
+
+## Статическая типизация (Этап 7)
+
+Аннотации типов **опциональны** и не меняют динамическую семантику исполнения —
+они управляют статическим тайпчекером (`typechecker.py`) и, при желании,
+runtime-проверкой (`run(..., enforce_types=True)`).
+
+Типы: `Int`, `Str`, `Bool`, `Float`, `Sym`, `List[T]`, `Top` (верхний тип).
+Числовая совместимость: `Int <: Float` (целое можно присвоить вещественному).
+Система **постепенная** (gradual): неаннотированный код типизируется как `Top` и
+проходит проверку; проверяются только те места, где тип известен с обеих сторон.
+
+Синтаксис:
+
+```evol
+lib t {
+  rule start = when boot => {
+    n : Int := 0                       # аннотация переменной
+    xs : List[Int] := [1, 2, 3]        # список с элементом типа
+    add := fun (a : Int, b : Int) -> Int => a + b   # типы параметров + результата
+    total := add(n, 3)
+    emit (go, total)
+  }
+  rule process = when (go, value : Int) => {   # аннотация поля входящего сообщения
+    emit (done)
+  }
+}
+```
+
+Что отклоняется:
+- присваивание значения несовместимого типа (`x : Int := "s"`);
+- аргумент вызова, не совпадающий с аннотированным параметром (`f("s")` при `f(x:Int)`);
+- тип результата функции, не совпадающий с `-> T`;
+- несовместимые операнды арифметики/сравнения.
+
+Runtime-проверка (`enforce_types=True`) ловит те же несовпадения во время исполнения
+(включая аннотированные поля сообщений из `match`). По умолчанию выключена — язык
+остаётся динамическим, как и задумано для proof-of-concept.
+
+Транспилятор (`compiler.py`) сохраняет аннотации как комментарии и теперь компилирует
+closure-присваивания (`x := fun (...) => ...`) в тела Python-функций.
 
 ## Результаты метрик
 
@@ -158,8 +201,8 @@ evol/
     corpus2.py        # held-out corpus #2 (6 задач, seeds зафиксированы)
     smt_prove.py      # z3-SMT: проверка гвардов
     option_c.py       # Rust-базовый вариант + M3 энтропия
-  samples/            # .evol файлы (симуляции, протоколы, игры, DI)
-  test_*.py           # тесты (8 suites, все зелёные)
+  samples/            # .evol файлы (симуляции, протоколы, игры, DI, typed_demo)
+  test_*.py           # тесты (suites, все зелёные кроме зависящих от z3/Rust)
 ```
 
 ---
@@ -175,8 +218,8 @@ evol/
 - [x] Error handling (try/catch/raise)
 - [x] FLOAT тип (динамический)
 - [x] Held-out корпус #2 (6 задач, seeds зафиксированы, без утечки)
+- [x] **Типы (аннотации + статическая проверка, опциональная runtime-проверка)** — Этап 7
 
 Осталось:
-- [ ] Типы (аннотации + статическая проверка)
 - [ ] FFI (системные вызовы, сеть)
 - [ ] Основной корпус 15–20 задач

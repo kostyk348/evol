@@ -20,6 +20,24 @@ class Node:
         return f"{type(self).__name__}({inner})"
 
 
+# --- аннотации типов (Этап 7: статическая типизация) ---
+class TypeExpr(Node):
+    """Базовый узел для аннотаций типов в исходнике."""
+    pass
+
+
+class TyCon(TypeExpr):
+    _fields = ("name",)  # Int, Str, Bool, Float, Sym, Top, List, либо пользовательский
+
+
+class TyList(TypeExpr):
+    _fields = ("elem",)
+
+
+class TyArrow(TypeExpr):
+    _fields = ("args", "ret")  # args: list[TypeExpr], ret: TypeExpr
+
+
 # --- declarations ---
 class Lib(Node):
     _fields = ("name", "decls")
@@ -51,7 +69,7 @@ class Loop(Node):
 
 
 class Assign(Node):
-    _fields = ("name", "value")
+    _fields = ("name", "value", "ann")  # ann: TypeExpr | None
 
 
 class Emit(Node):
@@ -98,7 +116,7 @@ class Str(Node):
 
 
 class Name(Node):
-    _fields = ("value",)
+    _fields = ("value", "ann")  # ann: TypeExpr | None (в позиции паттерна)
 
 
 class List(Node):
@@ -110,7 +128,8 @@ class Tuple(Node):
 
 
 class Fun(Node):
-    _fields = ("params", "body")  # body: expr
+    _fields = ("params", "body", "param_anns", "ret_ann")
+    # param_anns: list[TypeExpr|None] (по одному на params); ret_ann: TypeExpr|None
 
 
 class BinOp(Node):

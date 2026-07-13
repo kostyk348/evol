@@ -1,0 +1,36 @@
+# EVOL — демо статической типизации (Этап 7)
+#
+# Аннотации типов опциональны и не меняют семантику исполнения:
+#   - статический тайпчекер отклоняет несовпадения (Int/Str/Float/List[...]/функции)
+#   - при run(enforce_types=True) те же несовпадения ловятся и на runtime
+# Типы: Int, Str, Bool, Float, Sym, List[T], Top. Int <: Float (числовая совместимость).
+
+lib typed {
+
+  # чистая функция с типами параметра и результата
+  rule start = when boot => {
+    total : Int := 0
+    label : Str := "счётчик"
+    step  : Float := 1.5
+
+    add := fun (a : Int, b : Int) -> Int => a + b
+    total := add(2, 3)
+
+    xs : List[Int] := [1, 2, 3, 4, 5]
+    n : Int := len(xs)
+
+    console.print(label, ":", total, "из", n, "элементов, шаг", step)
+    emit (go, total)
+  }
+
+  # аннотации полей входящего сообщения
+  rule process = when (go, value : Int) => {
+    doubled : Int := value * 2
+    console.print("удвоенное значение:", doubled)
+    emit (done)
+  }
+
+  rule fin = when done => {
+    console.print("готово")
+  }
+}

@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ast_nodes import (
     Int, Float, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
     Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, ForEach,
-    TryCatch, Raise, Rule, Lib, Import,
+    TryCatch, Raise, Rule, Lib, Import, TyCon, TyList,
 )
 
 
@@ -24,6 +24,7 @@ class Compiler:
         self._indent = 0
         self._lines = []
         self._rule_counter = 0
+        self._closure_params = set()
 
     def _emit(self, line):
         self._lines.append("    " * self._indent + line)
@@ -35,6 +36,7 @@ class Compiler:
         self._emit("# Auto-generated from EVOL — do not edit")
         self._emit("import random as _random")
         self._emit("import os as _os")
+        self._emit("_noop = lambda *a: None")
         self._emit("")
         self._emit("store = {}")
         self._emit("queue = []")
@@ -140,8 +142,23 @@ class Compiler:
             self._compile_eff(eff.a)
             self._compile_eff(eff.b)
         elif t is Assign:
-            val = self._compile_expr(eff.value)
-            self._emit(f"    store['{eff.name}'] = {val}")
+            if isinstance(eff.value, Fun):
+                fn = f"fun_{eff.name}_{self._rule_counter}"
+                self._rule_counter += 1
+                params = ", ".join(eff.value.params)
+                self._emit(f"    def {fn}({params}):")
+                self._indent += 1
+                saved = self._closure_params
+                self._closure_params = set(eff.value.params)
+                body_expr = self._compile_expr(eff.value.body)
+                self._closure_params = saved
+                self._emit(f"    return {body_expr}")
+                self._indent -= 1
+                self._emit(f"    store['{eff.name}'] = {fn}")
+            else:
+                val = self._compile_expr(eff.value)
+                ann = f"  # : {_render_ann(eff.ann)}" if getattr(eff, "ann", None) is not None else ""
+                self._emit(f"    store['{eff.name}'] = {val}{ann}")
         elif t is Emit:
             val = self._compile_expr(eff.value)
             self._emit(f"    queue.append({val})")
@@ -207,6 +224,8 @@ class Compiler:
                 return "True"
             if expr.value in ("false", "False"):
                 return "False"
+            if expr.value in self._closure_params:
+                return expr.value
             return f"store.get('{expr.value}', 0)"
         if t is List:
             items = ", ".join(self._compile_expr(i) for i in expr.items)
@@ -260,7 +279,7 @@ class Compiler:
                     return f"int({args})"
                 if name == "float":
                     return f"float({args})"
-                return f"{name}({args})"
+                return f"store.get('{name}', _noop)({args})"
         if t is Index:
             obj = self._compile_expr(expr.obj)
             key = self._compile_expr(expr.key)
@@ -291,6 +310,14 @@ class Compiler:
             if func == "set_seed":
                 return f"_random.seed({args})"
         return f"{mod}.{func}({args})"
+
+
+def _render_ann(ann):
+    if isinstance(ann, TyCon):
+        return ann.name
+    if isinstance(ann, TyList):
+        return f"List[{_render_ann(ann.elem)}]"
+    return "?"
 
 
 def compile_evol(ast):

@@ -14,6 +14,10 @@ from lexer import tokenize, LexError, Token
 import ast_nodes as A
 
 
+# Имена встроенных типов (Этап 7: аннотации)
+TYPE_NAMES = {"Int", "Str", "Bool", "Float", "Sym", "Top", "List"}
+
+
 class ParseError(Exception):
     pass
 
@@ -154,13 +158,19 @@ class Parser:
             self.next()
             msg = self.parse_expr()
             return A.Raise(message=msg, line=t.line, col=t.col)
-        # assign: NAME ":="
-        if t.kind == "NAME" and self._peek2_is_assign():
+        # assign: NAME ":="  |  NAME ":" Type ":="
+        if t.kind == "NAME" and (self._peek2_is_assign() or self._peek2_is_colon_type()):
             self.next()
             name = t.text
-            self.expect("OP", ":=")
+            ann = None
+            if self.at("OP", ":"):
+                self.next()
+                ann = self.parse_type_expr()
+                self.expect("OP", ":=")
+            else:
+                self.expect("OP", ":=")
             value = self.parse_expr()
-            return A.Assign(name=name, value=value, line=t.line, col=t.col)
+            return A.Assign(name=name, value=value, ann=ann, line=t.line, col=t.col)
         # module call as effect: console.print(x), file.write(p, d), ...
         if t.kind == "NAME":
             expr = self.parse_expr()
@@ -184,6 +194,38 @@ class Parser:
             return False
         nxt = self.toks[self.pos + 1]
         return nxt.kind == "OP" and nxt.text == "."
+
+    def _peek2_is_colon_type(self):
+        """NAME ':' <тип> — аннотированное имя (паттерн/параметр/LHS)."""
+        if self.pos + 2 >= len(self.toks):
+            return False
+        a, b = self.toks[self.pos + 1], self.toks[self.pos + 2]
+        return a.kind == "OP" and a.text == ":" and b.kind == "NAME" and b.text in TYPE_NAMES
+
+    def _parse_annotated_name(self):
+        if self._peek2_is_colon_type():
+            t = self.peek()
+            name = self.expect_name()
+            self.next()  # ':'
+            ann = self.parse_type_expr()
+            return A.Name(value=name, ann=ann, line=t.line, col=t.col)
+        t = self.expect("NAME")
+        return A.Name(value=t.text, line=t.line, col=t.col)
+
+    def parse_type_expr(self):
+        t = self.peek()
+        if t.kind != "NAME" or t.text not in TYPE_NAMES:
+            raise ParseError(
+                f"ожидался тип (один из {sorted(TYPE_NAMES)}), получен "
+                f"{t.kind} {t.text!r} в {t.line}:{t.col}"
+            )
+        name = self.next().text
+        if name == "List" and self.at("OP", "["):
+            self.next()
+            inner = self.parse_type_expr()
+            self.expect("OP", "]")
+            return A.TyList(elem=inner, line=t.line, col=t.col)
+        return A.TyCon(name=name, line=t.line, col=t.col)
 
     def _parse_bin_eff(self, kw, cls):
         t = self.next()
@@ -321,7 +363,7 @@ class Parser:
                         self.next()
                         args.append(self.parse_expr())
                 self.expect("OP", ")")
-                node = A.Call(func=node, args=args)
+                node = A.Call(func=node, args=args, line=node.line, col=node.col)
             else:
                 break
         return node
@@ -347,14 +389,20 @@ class Parser:
             if self.at("OP", ")"):
                 self.next()
                 return A.Tuple(items=[], line=t.line, col=t.col)
-            first = self.parse_expr()
+
+            def parse_item():
+                if self.at("NAME") and self._peek2_is_colon_type():
+                    return self._parse_annotated_name()
+                return self.parse_expr()
+
+            first = parse_item()
             if self.at("OP", ","):
                 items = [first]
                 while self.at("OP", ","):
                     self.next()
                     if self.at("OP", ")"):
                         break
-                    items.append(self.parse_expr())
+                    items.append(parse_item())
                 self.expect("OP", ")")
                 return A.Tuple(items=items, line=t.line, col=t.col)
             self.expect("OP", ")")
@@ -374,16 +422,33 @@ class Parser:
     def parse_fun(self):
         t = self.expect("FUN")
         self.expect("OP", "(")
-        params = []
+        params, param_anns = [], []
         if not self.at("OP", ")"):
-            params.append(self.expect_name())
+            nm, ann = self._parse_param()
+            params.append(nm)
+            param_anns.append(ann)
             while self.at("OP", ","):
                 self.next()
-                params.append(self.expect_name())
+                nm, ann = self._parse_param()
+                params.append(nm)
+                param_anns.append(ann)
         self.expect("OP", ")")
+        ret_ann = None
+        if self.at("OP", "->"):
+            self.next()
+            ret_ann = self.parse_type_expr()
         self.expect("OP", "=>")
         body = self.parse_expr()
-        return A.Fun(params=params, body=body, line=t.line, col=t.col)
+        return A.Fun(params=params, body=body, param_anns=param_anns,
+                     ret_ann=ret_ann, line=t.line, col=t.col)
+
+    def _parse_param(self):
+        if self._peek2_is_colon_type():
+            name = self.expect_name()
+            self.next()  # ':'
+            ann = self.parse_type_expr()
+            return name, ann
+        return self.expect_name(), None
 
 
 def parse(src, filename="<input>"):
