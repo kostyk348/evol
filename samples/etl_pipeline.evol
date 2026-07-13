@@ -1,0 +1,41 @@
+lib etl {
+  rule extract = when boot => {
+    raw := 0
+    emit (extract_next)
+  }
+
+  rule pull_data = when extract_next => {
+    if raw < 4 then {
+      raw := raw + 1
+      emit (transform, raw)
+      emit (extract_next)
+    } else {
+      emit (load)
+    }
+  }
+
+  rule transform_data = when (transform, x) => {
+    clean := x * 10
+    emit (validated, clean)
+  }
+
+  rule validate = when (validated, v) => {
+    if v > 20 then {
+      emit (good, v)
+    } else {
+      emit (skip, v)
+    }
+  }
+
+  rule load_data = when (good, v) => {
+    emit (msg, "загружено:", v)
+  }
+
+  rule skip_data = when (skip, v) => {
+    emit (msg, "пропущено:", v)
+  }
+
+  rule finish = when load => {
+    emit (msg, "ETL завершён")
+  }
+}

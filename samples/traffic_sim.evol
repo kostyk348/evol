@@ -1,0 +1,54 @@
+lib traffic {
+  rule init = when boot => {
+    green_ns := 1
+    cars_n := 0
+    cars_s := 0
+    cars_e := 0
+    cars_w := 0
+    served := 0
+    emit (arrive)
+  }
+
+  rule spawn_cars = when arrive => {
+    if cars_n + cars_s + cars_e + cars_w < 12 then {
+      if green_ns == 1 then {
+        cars_n := cars_n + 1
+        cars_s := cars_s + 1
+      } else {
+        cars_e := cars_e + 1
+        cars_w := cars_w + 1
+      }
+      emit (arrive)
+    } else {
+      emit (cycle)
+    }
+  }
+
+  rule switch_light = when cycle => {
+    if green_ns == 1 then {
+      green_ns := 0
+      served := served + cars_e + cars_w
+      cars_e := 0
+      cars_w := 0
+    } else {
+      green_ns := 1
+      served := served + cars_n + cars_s
+      cars_n := 0
+      cars_s := 0
+    }
+    emit (status, green_ns, served)
+    if served < 12 then {
+      emit (cycle)
+    } else {
+      emit (done)
+    }
+  }
+
+  rule show = when (status, g, s) => {
+    emit (msg, "свет:", g, "обслужено:", s)
+  }
+
+  rule finish = when done => {
+    emit (msg, "светофор завершён, всего:", served)
+  }
+}

@@ -1,0 +1,34 @@
+lib chat {
+  rule welcome = when boot => {
+    users := 0
+    emit (check)
+  }
+
+  rule join = when check => {
+    if users < 3 then {
+      users := users + 1
+      emit (user_joined, users)
+      emit (check)
+    } else {
+      emit (ready)
+    }
+  }
+
+  rule broadcast = when (user_joined, id) => {
+    emit (msg, id, "присоединился к чату")
+  }
+
+  rule start_chat = when ready => {
+    emit (msg, 0, "чат запущен")
+    emit (send, 1, "привет")
+  }
+
+  rule relay = when (send, from, text) => {
+    emit (msg, from, text)
+    if from < 3 then {
+      emit (send, from + 1, "ответ")
+    } else {
+      emit (done)
+    }
+  }
+}

@@ -1,0 +1,53 @@
+lib server_farm {
+  rule boot = when boot => {
+    jobs := 0
+    done_count := 0
+    servers_on := 0
+    emit (provision)
+  }
+
+  rule provision = when provision => {
+    if servers_on < 3 then {
+      servers_on := servers_on + 1
+      emit (server_ready, servers_on)
+      emit (provision)
+    } else {
+      emit (accept)
+    }
+  }
+
+  rule receive_jobs = when accept => {
+    if jobs < 9 then {
+      jobs := jobs + 1
+      emit (dispatch, jobs)
+      emit (accept)
+    } else {
+      emit (drain)
+    }
+  }
+
+  rule dispatch_job = when (dispatch, id) => {
+    emit (process, id)
+  }
+
+  rule process_job = when (process, id) => {
+    done_count := done_count + 1
+    emit (job_done, id)
+  }
+
+  rule log_done = when (job_done, id) => {
+    emit (msg, "job", id, "выполнен")
+  }
+
+  rule drain_all = when drain => {
+    if done_count < 9 then {
+      emit (drain)
+    } else {
+      emit (shutdown)
+    }
+  }
+
+  rule final = when shutdown => {
+    emit (msg, "все задачи выполнены:", done_count)
+  }
+}

@@ -1,0 +1,39 @@
+lib game {
+  rule start = when boot => {
+    hp := 100
+    enemies := 0
+    emit (spawn_wave)
+  }
+
+  rule spawn_enemies = when spawn_wave => {
+    if enemies < 5 then {
+      enemies := enemies + 1
+      emit (enemy_appears, enemies)
+      emit (spawn_wave)
+    } else {
+      emit (combat)
+    }
+  }
+
+  rule fight = when combat => {
+    if hp > 0 then {
+      hp := hp - 15
+      emit (hit, hp)
+      if hp > 0 then {
+        emit (combat)
+      } else {
+        emit (game_over)
+      }
+    } else {
+      emit (game_over)
+    }
+  }
+
+  rule log_hit = when (hit, remaining) => {
+    emit (msg, "HP:", remaining)
+  }
+
+  rule end = when game_over => {
+    emit (msg, "конец игры")
+  }
+}

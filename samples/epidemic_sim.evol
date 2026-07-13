@@ -1,0 +1,38 @@
+lib epidemic {
+  rule init = when boot => {
+    healthy := 100
+    infected := 10
+    recovered := 0
+    day := 0
+    emit (tick)
+  }
+
+  rule step = when tick => {
+    if infected > 0 then {
+      prev := infected
+      new_cases := prev
+      healthy := healthy - new_cases
+      cured := prev / 3
+      if cured == 0 then {
+        cured := 1
+      } else {
+        cured := cured
+      }
+      recovered := recovered + cured
+      infected := prev - cured
+      day := day + 1
+      emit (report, day, healthy, infected, recovered)
+      emit (tick)
+    } else {
+      emit (done)
+    }
+  }
+
+  rule report_day = when (report, d, h, i, r) => {
+    emit (msg, "день", d, "здоров:", h, "болен:", i, "выздоровел:", r)
+  }
+
+  rule finish = when done => {
+    emit (msg, "эпидемия завершена")
+  }
+}
