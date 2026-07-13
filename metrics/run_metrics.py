@@ -27,6 +27,7 @@ from parser import parse
 from interpreter import run
 from typechecker import proven_properties, collect_facts
 import ast_nodes as A
+import smt_prove as SMT
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -223,8 +224,8 @@ def metric5(ast):
 
 def run_task(name, gen_fn, bootstrap, ns):
     print(f"\n### Задача: {name}\n")
-    print(f"| N | M1 (EVOL/Py токены) | M2 рекомб. % (K) | M4 ток/шаг | M5 свойств |")
-    print(f"|---|---|---|---|---|")
+    print(f"| N | M1 (EVOL/Py токены) | M2 рекомб. % (K) | M4 ток/шаг | M5 стат | M5-SMT |")
+    print(f"|---|---|---|---|---|---|")
     for n in ns:
         evol_src, py_src = gen_fn(n)
         # EVOL
@@ -238,7 +239,8 @@ def run_task(name, gen_fn, bootstrap, ns):
         m2_pct, k = metric2(ast)
         m4, steps = metric4(ast, bootstrap)
         m5, _, _ = metric5(ast)
-        print(f"| {n} | {t_e}/{t_p} = {m1:.3f} | {m2_pct:.0f}% (K={k}) | {m4:.2f} ({steps} шагов) | {m5} |")
+        m5smt, _ = SMT.smt_properties(ast)
+        print(f"| {n} | {t_e}/{t_p} = {m1:.3f} | {m2_pct:.0f}% (K={k}) | {m4:.2f} ({steps} шагов) | {m5} | {m5smt} |")
     print()
 
 
