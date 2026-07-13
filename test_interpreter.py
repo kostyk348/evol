@@ -56,6 +56,16 @@ def main():
     if not check("unmatched: без падения", not r["stopped_by_max_steps"]):
         fails.append("unmatched crash")
 
+    # 5) forall: итерация по коллекции без ручного развёртывания
+    r = run_file(os.path.join(SAMPLES, "demo_forall.evol"), ["boot"])
+    ticks = [m for m in r["emitted"]
+             if isinstance(m, tuple) and len(m) == 2 and m[0].name == "tick"]
+    if not check("forall: 5 тиков (range 0..5)", len(ticks) == 5, f"ticks={len(ticks)}"):
+        fails.append("forall count")
+    if not check("forall: store y == 4 (последний элемент)", r["store"].get("y") == 4,
+                 f"y={r['store'].get('y')}"):
+        fails.append("forall y")
+
     print("\n" + "=" * 50)
     if fails:
         print(f"ПРОВАЛ: {fails}")

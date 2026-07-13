@@ -21,7 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ast_nodes import (
     Int, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
-    Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, Rule, Lib,
+    Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, ForEach,
+    Rule, Lib,
 )
 from parser import parse
 
@@ -63,6 +64,22 @@ def make_value(v):
     if isinstance(v, str) and not v.startswith("^"):
         return Symbol(v)
     return v
+
+
+# Встроенные функции (примитивы, не требующие определения в программе)
+BUILTINS = {"range", "len"}
+
+
+def call_builtin(name, args):
+    if name == "range":
+        if len(args) != 2:
+            raise InterpreterError("range ожидает 2 аргумента")
+        return list(range(args[0], args[1]))
+    if name == "len":
+        if len(args) != 1:
+            raise InterpreterError("len ожидает 1 аргумент")
+        return len(args[0])
+    raise InterpreterError(f"неизвестный builtin {name}")
 
 
 class InterpreterError(Exception):
@@ -116,6 +133,9 @@ def evaluate(expr, sigma):
         raise InterpreterError(f"индексация неприменима к {obj!r}")
     if t is Call:
         func = evaluate(expr.func, sigma)
+        if isinstance(expr.func, Name) and expr.func.value in BUILTINS:
+            args = [evaluate(a, sigma) for a in expr.args]
+            return call_builtin(expr.func.value, args)
         if isinstance(func, tuple) and func[0] == "closure":
             params, body, env = func[1], func[2], func[3]
             args = [evaluate(a, sigma) for a in expr.args]
@@ -216,6 +236,21 @@ def eval_eff(node, sigma):
             emits += e
             spawned += s
             retracted |= r
+        return cur, emits, spawned, retracted
+    if t is ForEach:
+        coll = evaluate(node.coll, sigma)
+        if not isinstance(coll, list):
+            raise InterpreterError(f"forall: коллекция не список: {coll!r}")
+        cur = sigma
+        emits, spawned, retracted = [], [], set()
+        for e in coll:
+            local = dict(cur)
+            local[node.var] = e
+            nxt, e2, s2, r2 = eval_eff(node.body, local)
+            cur = {k: v for k, v in nxt.items() if k != node.var}
+            emits += e2
+            spawned += s2
+            retracted |= r2
         return cur, emits, spawned, retracted
     raise InterpreterError(f"неизвестный eff-узел {t}")
 

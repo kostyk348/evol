@@ -32,87 +32,103 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Словарь примитивов языка K (для M2)
 K_PRIMITIVES = ["when", "emit", "spawn", "retract", "assign",
-                "if", "seq", "par", "choice", "loop"]
+                "if", "seq", "par", "choice", "loop", "forall"]
 
 # ---------------- генераторы ----------------
 
 def gen_dispatcher(n):
-    """Задача 1: N обработчиков, зависимости цепочкой (h_i после h_{i-1})."""
-    evol = ["lib dispatcher {", "  rule start = when boot => {", "    emit (e_0)", "  }"]
-    py = ["def start():", "    queue.append('e_0')", "",
-          "def dispatcher():", "    start()", "    while queue:",
-          "        ev = queue.pop(0)"]
-    for i in range(n):
-        nxt = f"e_{i+1}" if i + 1 < n else "done"
-        evol.append(f"  rule h_{i} = when e_{i} => {{")
-        evol.append(f"    y_{i} := {i}")
-        evol.append(f"    emit ({nxt})")
-        evol.append("  }")
-        py.append(f"")
-        py.append(f"def h_{i}():")
-        py.append(f"    y_{i} = {i}")
-        py.append(f"    queue.append('{nxt}')")
-        py.append(f"")
-        kw = "if" if i == 0 else "elif"
-        py.append(f"        {kw} ev == 'e_{i}':")
-        py.append(f"            h_{i}()")
-    evol.append("}")
-    py.append("        else:")
-    py.append("            pass")
+    """Задача 1: N обработчиков. Через forall — O(1) правил, без ручного развёртывания N."""
+    evol = [
+        "lib dispatcher {",
+        "  rule start = when boot => {",
+        f"    forall i in range(0, {n}) {{",
+        "      emit (e, i)",
+        "    }",
+        "  }",
+        "  rule h = when (e, x) => {",
+        "    y := x",
+        "    emit (done)",
+        "  }",
+        "}",
+    ]
+    py = [
+        "def start():",
+        f"    for i in range({n}):",
+        "        queue.append(('e', i))",
+        "",
+        "def h(x):",
+        "    y = x",
+        "    queue.append('done')",
+        "",
+        "def dispatcher():",
+        "    start()",
+        "    while queue:",
+        "        ev = queue.pop(0)",
+        "        if isinstance(ev, tuple) and ev[0] == 'e':",
+        "            h(ev[1])",
+    ]
     return "\n".join(evol), "\n".join(py)
 
 
 def gen_statemachine(n):
-    """Задача 2: N состояний, guards через общий счётчик."""
-    evol = ["lib sm {", "  rule init = when boot => {", "    emit (s_0)", "  }"]
-    py = ["def init():", "    queue.append('s_0')", "",
-          "def sm():", "    init()", "    while queue:",
-          "        ev = queue.pop(0)"]
-    for i in range(n):
-        nxt = f"s_{i+1}" if i + 1 < n else "done"
-        evol.append(f"  rule st_{i} = when s_{i} => {{")
-        evol.append(f"    x_{i} := {i}")
-        evol.append(f"    if x_{i} < {n} then {{ emit ({nxt}) }} else {{ emit (halt) }}")
-        evol.append("  }")
-        py.append(f"")
-        py.append(f"def st_{i}():")
-        py.append(f"    x_{i} = {i}")
-        py.append(f"    if x_{i} < {n}:")
-        py.append(f"        queue.append('{nxt}')")
-        py.append(f"    else:")
-        py.append(f"        queue.append('halt')")
-        py.append(f"")
-        kw = "if" if i == 0 else "elif"
-        py.append(f"        {kw} ev == 's_{i}':")
-        py.append(f"            st_{i}()")
-    evol.append("}")
-    py.append("        else:")
-    py.append("            pass")
+    """Задача 2: N состояний как один параметрический rule (состояние = данные)."""
+    evol = [
+        "lib sm {",
+        "  rule init = when boot => {",
+        "    emit (s, 0)",
+        "  }",
+        "  rule st = when (s, x) => {",
+        f"    if x < {n} then {{ emit (s, x + 1) }} else {{ emit (halt) }}",
+        "  }",
+        "}",
+    ]
+    py = [
+        "def sm(n):",
+        "    x = 0",
+        f"    while x < {n}:",
+        "        x = x + 1",
+    ]
     return "\n".join(evol), "\n".join(py)
 
 
 def gen_pipeline(n):
-    """Задача 3: N стадий, каждая — emit; каждая 3-я пара параллельна (par)."""
-    emits = [f"emit (stage_{i})" for i in range(n)]
-    evol_body = "\n    ".join(emits)
-    evol = [f"lib pipe {{", f"  rule run = when boot => {{", f"    {evol_body}", f"  }}", f"}}"]
-    py_lines = ["def run():"]
-    for i in range(n):
-        py_lines.append(f"    queue.append('stage_{i}')")
-    return "\n".join(evol), "\n".join(py_lines)
+    """Задача 3: N стадий через forall — O(1) правил."""
+    evol = [
+        "lib pipe {",
+        "  rule run = when boot => {",
+        f"    forall i in range(0, {n}) {{",
+        "      emit (stage, i)",
+        "    }",
+        "  }",
+        "}",
+    ]
+    py = [
+        "def run(n):",
+        f"    for i in range({n}):",
+        "        queue.append(('stage', i))",
+    ]
+    return "\n".join(evol), "\n".join(py)
 
 
 def gen_di(fixed=50):
-    """Здача 4 (контрольная, не масштабируется): DI из fixed сервисов."""
-    evol = ["lib di {", "  rule wire = when boot => {"]
-    py = ["def wire():", "    services = []", "    deps = []"]
-    for i in range(fixed):
-        evol.append(f"    svc_{i} := (svc{i})")
-        py.append(f"    services.append('svc{i}')")
-    evol.append(f"    emit (wire_ok)")
-    evol.append("  }")
-    evol.append("}")
-    py.append("    return 'wire_ok'")
+    """Задача 4 (контрольная, не масштабируется): DI из fixed сервисов."""
+    evol = [
+        "lib di {",
+        "  rule wire = when boot => {",
+        f"    forall i in range(0, {fixed}) {{",
+        "      svc := (svc, i)",
+        "    }",
+        "    emit (wire_ok)",
+        "  }",
+        "}",
+    ]
+    py = [
+        "def wire():",
+        f"    services = []",
+        f"    for i in range({fixed}):",
+        "        services.append(('svc', i))",
+        "    return 'wire_ok'",
+    ]
     return "\n".join(evol), "\n".join(py)
 
 
@@ -163,6 +179,8 @@ def used_primitives(ast):
             s.add("choice")
         elif t is A.Loop:
             s.add("loop")
+        elif t is A.ForEach:
+            s.add("forall")
         for f in getattr(node, "_fields", ()):
             v = getattr(node, f)
             if isinstance(v, list):

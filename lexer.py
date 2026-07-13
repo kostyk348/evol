@@ -11,7 +11,7 @@ class LexError(Exception):
 # Ключевые слова языка (из грамматики Этапа 1)
 KEYWORDS = {
     "lib", "rule", "when", "spawn", "retract", "emit", "if", "then", "else",
-    "seq", "par", "choice", "loop", "fun", "and", "or", "not",
+    "seq", "par", "choice", "loop", "fun", "and", "or", "not", "forall",
 }
 
 # Двусимвольные операторы

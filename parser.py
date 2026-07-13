@@ -129,6 +129,8 @@ class Parser:
             self.next()
             name = self.expect_name()
             return A.Retract(name=name, line=t.line, col=t.col)
+        if t.kind == "FORALL":
+            return self._parse_forall()
         # assign: NAME ":="
         if t.kind == "NAME" and self._peek2_is_assign():
             self.next()
@@ -154,6 +156,21 @@ class Parser:
         b = self.parse_eff()
         self.expect("OP", ")")
         return cls(a=a, b=b, line=t.line, col=t.col)
+
+    def _parse_forall(self):
+        t = self.next()  # FORALL
+        var = self.expect_name()
+        self.expect_name()  # "in"
+        coll = self.parse_expr()
+        self.expect("OP", "{")
+        stmts = []
+        while not self.at("OP", "}"):
+            if self.at("EOF"):
+                raise ParseError(f"незакрытый forall (нет '}}')")
+            stmts.append(self.parse_eff())
+        self.expect("OP", "}")
+        body = A.Block(stmts=stmts, line=t.line, col=t.col)
+        return A.ForEach(var=var, coll=coll, body=body, line=t.line, col=t.col)
 
     def parse_block(self):
         t = self.expect("OP", "{")

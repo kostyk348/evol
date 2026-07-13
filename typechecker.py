@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ast_nodes import (
     Int, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
-    Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, Rule, Lib,
+    Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, ForEach,
+    Rule, Lib,
 )
 
 
@@ -95,6 +96,15 @@ class TFun(Type):
 
 
 TINT, TSTR, TSYM, TBOOL, TUNIT, TTOP = TInt(), TStr(), TSym(), TBool(), TUnit(), TTop()
+
+
+def builtin_type(name):
+    """Тип встроенной функции (соответствует interpreter.BUILTINS)."""
+    if name == "range":
+        return TFun((TINT, TINT), TList(TINT))
+    if name == "len":
+        return TFun((TList(TTOP),), TINT)
+    return None
 
 
 class TypeError(Exception):
@@ -183,6 +193,12 @@ class TypeChecker:
             self.err(expr, f"индексация от {obj}")
             return TTOP
         if t is Call:
+            if isinstance(expr.func, Name) and builtin_type(expr.func.value) is not None:
+                sig = builtin_type(expr.func.value)
+                args = [self.infer(a, env) for a in expr.args]
+                if len(args) != len(sig.args):
+                    self.err(expr, f"арность вызова {expr.func.value}: ожидалось {len(sig.args)}, дано {len(args)}")
+                return sig.ret
             func = self.infer(expr.func, env)
             args = [self.infer(a, env) for a in expr.args]
             if isinstance(func, TFun):
@@ -249,6 +265,13 @@ class TypeChecker:
             if not truthy_type(g):
                 self.err(node, f"guard цикла не логического типа: {g}")
             self.check_eff(node.body, env)
+        elif t is ForEach:
+            coll = self.infer(node.coll, env)
+            if not isinstance(coll, TList):
+                self.err(node, f"forall: коллекция не список: {coll}")
+            local = dict(env)
+            local[node.var] = coll.elem if isinstance(coll, TList) else TTOP
+            self.check_eff(node.body, local)
         else:
             self.err(node, f"неизвестный eff {t}")
 

@@ -1,0 +1,10 @@
+lib demo {
+  rule start = when boot => {
+    forall i in range(0, 5) {
+      emit (tick, i)
+    }
+  }
+  rule h = when (tick, x) => {
+    y := x
+  }
+}

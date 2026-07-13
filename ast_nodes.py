@@ -70,6 +70,10 @@ class If(Node):
     _fields = ("cond", "then_branch", "else_branch")
 
 
+class ForEach(Node):
+    _fields = ("var", "coll", "body")  # body: eff, выполняется для каждого elem coll, связывая var
+
+
 # --- expressions (чистые значения) ---
 class Int(Node):
     _fields = ("value",)
