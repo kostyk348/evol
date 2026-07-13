@@ -1,0 +1,15 @@
+import py "time": sleep;
+
+rule worker = when (go, _) => {
+    py.sleep(0.01);
+    emit (done, 1)
+};
+
+rule boss = when (start, _) => {
+    count := 0;
+    loop (count < 20, {
+        spawn worker;
+        count := count + 1
+    });
+    emit (go, 0)
+};
