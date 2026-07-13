@@ -1,0 +1,28 @@
+lib data_pipeline {
+  rule init = when boot => {
+    file.write("output_log.txt", "")
+    records := 0
+    emit (next)
+  }
+
+  rule process = when next => {
+    if records < 5 then {
+      records := records + 1
+      val := random.int(10, 99)
+      console.print("запись", records, ": значение", val)
+      line := str(records)
+      line := line + ": "
+      line := line + str(val)
+      file.write("output_log.txt", line)
+      emit (next)
+    } else {
+      emit (done)
+    }
+  }
+
+  rule finish = when done => {
+    data := file.read("output_log.txt")
+    console.println("лог:", data)
+    console.println("обработано записей:", records)
+  }
+}

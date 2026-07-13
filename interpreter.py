@@ -16,6 +16,7 @@
 
 import sys
 import os
+import random as _random
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -67,7 +68,7 @@ def make_value(v):
 
 
 # Встроенные функции (примитивы, не требующие определения в программе)
-BUILTINS = {"range", "len"}
+BUILTINS = {"range", "len", "abs", "min", "max", "str", "int", "float"}
 
 
 def call_builtin(name, args):
@@ -79,7 +80,131 @@ def call_builtin(name, args):
         if len(args) != 1:
             raise InterpreterError("len ожидает 1 аргумент")
         return len(args[0])
+    if name == "abs":
+        if len(args) != 1:
+            raise InterpreterError("abs ожидает 1 аргумент")
+        return abs(args[0])
+    if name == "min":
+        if len(args) < 2:
+            raise InterpreterError("min ожидает 2+ аргумента")
+        return min(args)
+    if name == "max":
+        if len(args) < 2:
+            raise InterpreterError("max ожидает 2+ аргумента")
+        return max(args)
+    if name == "str":
+        if len(args) != 1:
+            raise InterpreterError("str ожидает 1 аргумент")
+        return str(args[0])
+    if name == "int":
+        if len(args) != 1:
+            raise InterpreterError("int ожидает 1 аргумент")
+        return int(args[0])
+    if name == "float":
+        if len(args) != 1:
+            raise InterpreterError("float ожидает 1 аргумент")
+        return float(args[0])
     raise InterpreterError(f"неизвестный builtin {name}")
+
+
+# Состояние симуляции (общее для всех модулей)
+_sim_state = {"step": 0}
+
+
+# Модули стандартной библиотеки
+def _call_module(mod, func, args):
+    if mod == "console":
+        return _call_console(func, args)
+    if mod == "random":
+        return _call_random(func, args)
+    if mod == "file":
+        return _call_file(func, args)
+    if mod == "sim":
+        return _call_sim(func, args)
+    raise InterpreterError(f"неизвестный модуль '{mod}'")
+
+
+def _call_console(func, args):
+    if func == "print":
+        if len(args) < 1:
+            raise InterpreterError("console.print ожидает 1+ аргументов")
+        parts = []
+        for a in args:
+            if isinstance(a, Symbol):
+                parts.append(a.name)
+            else:
+                parts.append(str(a))
+        print(" ".join(parts))
+        return args[0] if len(args) == 1 else tuple(args)
+    if func == "println":
+        if len(args) < 1:
+            raise InterpreterError("console.println ожидает 1+ аргументов")
+        parts = []
+        for a in args:
+            if isinstance(a, Symbol):
+                parts.append(a.name)
+            else:
+                parts.append(str(a))
+        print(" ".join(parts))
+        return args[0] if len(args) == 1 else tuple(args)
+    raise InterpreterError(f"console: неизвестная функция '{func}'")
+
+
+def _call_random(func, args):
+    if func == "int":
+        if len(args) != 2:
+            raise InterpreterError("random.int(a, b) ожидает 2 аргумента")
+        return _random.randint(args[0], args[1])
+    if func == "pick":
+        if len(args) != 1:
+            raise InterpreterError("random.pick(list) ожидает 1 аргумент")
+        coll = args[0]
+        if not isinstance(coll, list) or len(coll) == 0:
+            raise InterpreterError("random.pick: пустая коллекция")
+        return _random.choice(coll)
+    if func == "shuffle":
+        if len(args) != 1:
+            raise InterpreterError("random.shuffle(list) ожидает 1 аргумент")
+        coll = list(args[0])
+        _random.shuffle(coll)
+        return coll
+    raise InterpreterError(f"random: неизвестная функция '{func}'")
+
+
+def _call_file(func, args):
+    if func == "read":
+        if len(args) != 1:
+            raise InterpreterError("file.read(path) ожидает 1 аргумент")
+        path = args[0]
+        if not isinstance(path, str):
+            raise InterpreterError(f"file.read: путь должен быть строкой, получено {path!r}")
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    if func == "write":
+        if len(args) != 2:
+            raise InterpreterError("file.write(path, data) ожидает 2 аргумента")
+        path, data = args[0], args[1]
+        if not isinstance(path, str):
+            raise InterpreterError(f"file.write: путь должен быть строкой, получено {path!r}")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(str(data))
+        return data
+    if func == "exists":
+        if len(args) != 1:
+            raise InterpreterError("file.exists(path) ожидает 1 аргумент")
+        return 1 if os.path.exists(args[0]) else 0
+    raise InterpreterError(f"file: неизвестная функция '{func}'")
+
+
+def _call_sim(func, args):
+    if func == "step":
+        return _sim_state["step"]
+    if func == "set_seed":
+        if len(args) != 1:
+            raise InterpreterError("sim.set_seed(n) ожидает 1 аргумент")
+        _random.seed(args[0])
+        return args[0]
+    raise InterpreterError(f"sim: неизвестная функция '{func}'")
 
 
 class InterpreterError(Exception):
@@ -132,6 +257,11 @@ def evaluate(expr, sigma):
             return obj[key]
         raise InterpreterError(f"индексация неприменима к {obj!r}")
     if t is Call:
+        if isinstance(expr.func, GetAttr) and isinstance(expr.func.obj, Name):
+            mod_name = expr.func.obj.value
+            func_name = expr.func.attr
+            args = [evaluate(a, sigma) for a in expr.args]
+            return _call_module(mod_name, func_name, args)
         func = evaluate(expr.func, sigma)
         if isinstance(expr.func, Name) and expr.func.value in BUILTINS:
             args = [evaluate(a, sigma) for a in expr.args]
@@ -252,6 +382,9 @@ def eval_eff(node, sigma):
             spawned += s2
             retracted |= r2
         return cur, emits, spawned, retracted
+    if t is Call:
+        evaluate(node, sigma)
+        return sigma, [], [], set()
     raise InterpreterError(f"неизвестный eff-узел {t}")
 
 
@@ -316,6 +449,7 @@ def resolve_spawn(table, sp):
 
 
 def run(ast, bootstrap, max_steps=100000):
+    _sim_state["step"] = 0
     table = collect_rule_table(ast)
     q = []
     rid = 0
@@ -329,6 +463,7 @@ def run(ast, bootstrap, max_steps=100000):
     emitted_log = []
     while queue and steps < max_steps:
         steps += 1
+        _sim_state["step"] = steps
         m = queue.pop(0)
         cands = []
         for r in q:

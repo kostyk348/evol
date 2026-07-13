@@ -155,6 +155,14 @@ class Parser:
             self.expect("OP", ":=")
             value = self.parse_expr()
             return A.Assign(name=name, value=value, line=t.line, col=t.col)
+        # module call as effect: console.print(x), file.write(p, d), ...
+        if t.kind == "NAME":
+            expr = self.parse_expr()
+            if isinstance(expr, A.Call):
+                return expr
+            raise ParseError(
+                f"ожидался eff, получен выражение {t.kind} {t.text!r} в {t.line}:{t.col}"
+            )
         raise ParseError(
             f"ожидался eff, получен {t.kind} {t.text!r} в {t.line}:{t.col}"
         )

@@ -28,8 +28,8 @@ if __name__ == "__main__":
 
     demos = [
         ("server_farm_sim.evol", "Server Farm (3 сервера, 9 задач)", ["boot"]),
-        ("epidemic_sim.evol", "Epidemic Sim (модель SIR)", ["boot"]),
-        ("traffic_sim.evol", "Traffic Light (светофор, 2 цикла)", ["boot"]),
+        ("dice_game.evol", "Dice Game (random + console, 5 раундов)", ["boot"]),
+        ("data_pipeline.evol", "Data Pipeline (random + file I/O)", ["boot"]),
     ]
     for fname, title, boot in demos:
         with open(os.path.join(base, fname), encoding="utf-8") as f:

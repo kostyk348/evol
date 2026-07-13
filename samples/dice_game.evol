@@ -1,0 +1,30 @@
+lib dice_game {
+  rule start = when boot => {
+    sim.set_seed(42)
+    rounds := 0
+    wins := 0
+    emit (roll)
+  }
+
+  rule roll_dice = when roll => {
+    d1 := random.int(1, 6)
+    d2 := random.int(1, 6)
+    total := d1 + d2
+    rounds := rounds + 1
+    if total >= 7 then {
+      wins := wins + 1
+      console.print("раунд", rounds, ": бросок", d1, "+", d2, "=", total, "ПОБЕДА")
+    } else {
+      console.print("раунд", rounds, ": бросок", d1, "+", d2, "=", total, "проигрыш")
+    }
+    if rounds < 5 then {
+      emit (roll)
+    } else {
+      emit (summary)
+    }
+  }
+
+  rule final = when summary => {
+    console.println("результат:", wins, "из", rounds)
+  }
+}
