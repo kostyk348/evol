@@ -12,7 +12,7 @@ class LexError(Exception):
 KEYWORDS = {
     "lib", "rule", "when", "spawn", "retract", "emit", "if", "then", "else",
     "seq", "par", "choice", "loop", "fun", "and", "or", "not", "forall",
-    "import", "try", "catch", "raise",
+    "import", "try", "catch", "raise", "type", "match", "enum",
 }
 
 # Двусимвольные операторы
@@ -131,7 +131,7 @@ def tokenize(src, filename="<input>"):
             continue
 
         # односимвольные операторы / пунктуация
-        if c in ONE_CHAR_OPS or c in "{}()[],.:=":
+        if c in ONE_CHAR_OPS or c in "{}()[],.:=|;":
             tokens.append(Token("OP", c, start_line, start_col))
             advance()
             continue

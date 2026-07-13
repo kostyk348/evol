@@ -23,7 +23,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ast_nodes import (
     Int, Float, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
     Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, ForEach,
-    TryCatch, Raise, Rule, Lib, Import, TyCon, TyList,
+    TryCatch, Raise, Rule, Lib, Import, PyImport, EnumDecl, EnumVariant,
+    Match, MatchCase, TyCon, TyList,
 )
 from parser import parse
 
@@ -146,6 +147,13 @@ def call_builtin(name, args):
 # Состояние симуляции (общее для всех модулей)
 _sim_state = {"step": 0}
 
+# FFI-реестр: имя функции -> Python-callable (заполняется import py ...)
+_py_ffi = {}
+
+# Корень проекта и каталог samples для разрешения модулей
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+SAMPLES_DIR = os.path.join(_ROOT, "samples")
+
 
 # Модули стандартной библиотеки
 def _call_module(mod, func, args):
@@ -163,7 +171,23 @@ def _call_module(mod, func, args):
         return _call_string(func, args)
     if mod == "os":
         return _call_os(func, args)
-    raise InterpreterError(f"неизвестный модуль '{mod}'")
+        raise InterpreterError(f"неизвестный модуль '{mod}'")
+
+
+# --- FFI к Python (sandboxed) ---
+_FFI_BANNED = {"eval", "exec", "open", "__import__", "compile", "input", "exit", "quit"}
+
+
+def _call_ffi(func, args):
+    if func not in _py_ffi:
+        raise InterpreterError(
+            f"FFI: функция 'py.{func}' не зарегистрирована — добавьте "
+            f"'import py \"<module>\": {func};'"
+        )
+    try:
+        return _py_ffi[func](*args)
+    except Exception as e:
+        raise EvalError(f"FFI py.{func}: {e}")
 
 
 def _call_console(func, args):
@@ -372,6 +396,12 @@ def evaluate(expr, sigma):
         return eval_binop(expr.op, evaluate(expr.left, sigma), evaluate(expr.right, sigma))
     if t is GetAttr:
         obj = evaluate(expr.obj, sigma)
+        if isinstance(expr.obj, Name) and expr.obj.value == "py":
+            if expr.attr not in _py_ffi:
+                raise InterpreterError(
+                    f"FFI: 'py.{expr.attr}' не зарегистрирован (import py ...: {expr.attr})"
+                )
+            return _py_ffi[expr.attr]
         if expr.attr == "kind":
             if isinstance(obj, tuple) and len(obj) >= 1:
                 return obj[0]
@@ -385,16 +415,31 @@ def evaluate(expr, sigma):
         if isinstance(obj, (list, tuple)):
             return obj[key]
         raise InterpreterError(f"индексация неприменима к {obj!r}")
+    if t is Match:
+        val = evaluate(expr.scrut, sigma)
+        for case in expr.cases:
+            b = {}
+            if match_value(case.pat, val, b) is not None:
+                local = dict(sigma)
+                local.update(b)
+                return evaluate(case.body, local)
+        return None
     if t is Call:
         if isinstance(expr.func, GetAttr) and isinstance(expr.func.obj, Name):
             mod_name = expr.func.obj.value
             func_name = expr.func.attr
             args = [evaluate(a, sigma) for a in expr.args]
+            if mod_name == "py":
+                return _call_ffi(func_name, args)
             return _call_module(mod_name, func_name, args)
         func = evaluate(expr.func, sigma)
         if isinstance(expr.func, Name) and expr.func.value in BUILTINS:
             args = [evaluate(a, sigma) for a in expr.args]
             return call_builtin(expr.func.value, args)
+        if isinstance(expr.func, Name) and expr.func.value[:1].isupper():
+            # ADT-конструктор: Circle(3.0) -> (Symbol("Circle"), 3.0)
+            args = [evaluate(a, sigma) for a in expr.args]
+            return tuple([Symbol(expr.func.value)] + args)
         if isinstance(func, tuple) and func[0] == "closure":
             params, body, param_anns, env = func[1], func[2], func[3], func[4]
             args = [evaluate(a, sigma) for a in expr.args]
@@ -562,10 +607,82 @@ def match(pat, msg):
     return None
 
 
-def collect_rule_table(decls, table=None, base_lib=""):
-    """Возвращает {(libname, rulename): RuleNode}. import "файл" подгружает внешний модуль."""
+def match_value(pat, val, bindings):
+    """Сопоставление значения (tuple/Symbol) с паттерном match-выражения.
+    Возвращает bindings или None."""
+    if isinstance(pat, Name):
+        if pat.value == "_":
+            return bindings
+        if isinstance(val, Symbol) and val.name == pat.value:
+            return bindings
+        if (isinstance(val, tuple) and len(val) >= 1
+                and isinstance(val[0], Symbol) and val[0].name == pat.value):
+            return bindings
+        return None
+    if isinstance(pat, Tuple):
+        if not isinstance(val, tuple) or len(pat.items) != len(val):
+            return None
+        tag = pat.items[0]
+        if not isinstance(tag, Name):
+            return None
+        if not (isinstance(val[0], Symbol) and val[0].name == tag.value):
+            return None
+        for item, v in zip(pat.items[1:], val[1:]):
+            if isinstance(item, Name) and item.value != "_":
+                bindings[item.value] = v
+        return bindings
+    return None
+
+
+def _resolve_module(target, base_dir):
+    """Ищет .evol-файл: абсолютный, рядом с импортирующим файлом, в cwd, в samples/."""
+    candidates = []
+    if os.path.isabs(target):
+        candidates.append(target)
+    else:
+        candidates.append(os.path.join(base_dir, target))
+        candidates.append(os.path.join(os.getcwd(), target))
+        candidates.append(os.path.join(SAMPLES_DIR, target))
+        if not target.endswith(".evol"):
+            candidates.append(os.path.join(base_dir, target + ".evol"))
+            candidates.append(os.path.join(os.getcwd(), target + ".evol"))
+            candidates.append(os.path.join(SAMPLES_DIR, target + ".evol"))
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return None
+
+
+def _register_pyimport(d):
+    try:
+        if "." in d.module:
+            parts = d.module.split(".")
+            mod = __import__(parts[0], fromlist=["__name__"])
+            for p in parts[1:]:
+                mod = getattr(mod, p)
+        else:
+            mod = __import__(d.module)
+    except Exception as e:
+        raise InterpreterError(
+            f"FFI: не удалось импортировать Python-модуль '{d.module}': {e}"
+        )
+    names = d.funcs if d.funcs else [n for n in dir(mod) if not n.startswith("_")]
+    for fn in names:
+        if fn in _FFI_BANNED:
+            raise InterpreterError(f"FFI: вызов '{fn}' запрещён (sandbox)")
+        if not hasattr(mod, fn):
+            raise InterpreterError(f"FFI: '{d.module}.{fn}' не найдено")
+        _py_ffi[fn] = getattr(mod, fn)
+
+
+def collect_rule_table(decls, table=None, base_lib="", base_dir=".", _seen=None):
+    """Возвращает {(libname, rulename): RuleNode}.
+    import "файл.evol" / import name — подгружает внешний модуль (поиск путей).
+    import py "mod": f, g — регистрирует FFI-функции."""
     if table is None:
         table = {}
+    if _seen is None:
+        _seen = set()
     for d in decls:
         if isinstance(d, Rule):
             table[(base_lib, d.name)] = d
@@ -573,12 +690,27 @@ def collect_rule_table(decls, table=None, base_lib=""):
             for sub in d.decls:
                 if isinstance(sub, Rule):
                     table[(d.name, sub.name)] = sub
-        elif isinstance(d, Import) and d.is_path:
-            path = d.target
+        elif isinstance(d, EnumDecl):
+            pass  # типы проверяются тайпчекером; в рантайме не нужны
+        elif isinstance(d, PyImport):
+            _register_pyimport(d)
+        elif isinstance(d, Import):
+            if d.is_path:
+                path = _resolve_module(d.target, base_dir)
+                if path is None:
+                    raise InterpreterError(f"модуль не найден: {d.target}")
+            else:
+                path = _resolve_module(d.target + ".evol", base_dir)
+                if path is None:
+                    raise InterpreterError(f"модуль не найден: {d.target}.evol")
+            if path in _seen:
+                continue  # защита от циклов
+            _seen.add(path)
             with open(path, encoding="utf-8") as f:
                 sub_ast = parse(f.read(), path)
             stem = os.path.splitext(os.path.basename(path))[0]
-            collect_rule_table(sub_ast, table, base_lib=stem)
+            collect_rule_table(sub_ast, table, base_lib=stem,
+                               base_dir=os.path.dirname(path), _seen=_seen)
     return table
 
 
@@ -594,10 +726,11 @@ def resolve_spawn(table, sp):
     return None
 
 
-def run(ast, bootstrap, max_steps=100000, enforce_types=False):
+def run(ast, bootstrap, max_steps=100000, enforce_types=False, base_dir="."):
     set_enforce_types(enforce_types)
     _sim_state["step"] = 0
-    table = collect_rule_table(ast)
+    _py_ffi.clear()
+    table = collect_rule_table(ast, base_dir=base_dir)
     q = []
     rid = 0
     for (lib, name), node in table.items():
@@ -656,4 +789,5 @@ def run_file(path, bootstrap, enforce_types=False):
     with open(path, encoding="utf-8") as f:
         src = f.read()
     ast = parse(src, path)
-    return run(ast, bootstrap, enforce_types=enforce_types)
+    return run(ast, bootstrap, enforce_types=enforce_types,
+               base_dir=os.path.dirname(os.path.abspath(path)))

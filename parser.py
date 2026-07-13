@@ -72,7 +72,9 @@ class Parser:
             return self.parse_rule()
         if t.kind == "IMPORT":
             return self.parse_import()
-        raise ParseError(f"ожидался decl (lib/rule/import), получен {t.kind} {t.text!r} в {t.line}:{t.col}")
+        if t.kind in ("TYPE", "ENUM"):
+            return self.parse_enum()
+        raise ParseError(f"ожидался decl (lib/rule/import/type), получен {t.kind} {t.text!r} в {t.line}:{t.col}")
 
     def parse_lib(self):
         t = self.expect("LIB")
@@ -94,10 +96,26 @@ class Parser:
         pat = self.parse_expr()
         self.expect("OP", "=>")
         body = self.parse_eff()
+        if self.at("OP", ";"):
+            self.next()
         return A.Rule(name=name, pat=pat, body=body, line=t.line, col=t.col)
 
     def parse_import(self):
         t = self.next()  # IMPORT
+        if self.at("NAME", "py"):
+            self.next()
+            mod = self.expect("STR").text
+            alias = mod.split(".")[-1]
+            funcs = None
+            if self.at("OP", ":"):
+                self.next()
+                funcs = [self.expect_name()]
+                while self.at("OP", ","):
+                    self.next()
+                    funcs.append(self.expect_name())
+            self.expect("OP", ";")
+            return A.PyImport(module=mod, funcs=funcs, alias=alias,
+                              line=t.line, col=t.col)
         if self.at("STR"):
             target = self.next().text
             self.expect("OP", ";")
@@ -105,6 +123,33 @@ class Parser:
         name = self.expect_name()
         self.expect("OP", ";")
         return A.Import(target=name, is_path=False, line=t.line, col=t.col)
+
+    def parse_enum(self):
+        t = self.next()  # TYPE или ENUM
+        name = self.expect_name()
+        self.expect("OP", "=")
+        variants = [self._parse_variant()]
+        while self.at("OP", "|"):
+            self.next()
+            variants.append(self._parse_variant())
+        self.expect("OP", ";")
+        return A.EnumDecl(name=name, variants=variants, line=t.line, col=t.col)
+
+    def _parse_variant(self):
+        t = self.peek()
+        tag = self.expect_name()
+        fields = []
+        if self.at("OP", "("):
+            self.next()
+            if not self.at("OP", ")"):
+                nm, ann = self._parse_param()
+                fields.append(ann)
+                while self.at("OP", ","):
+                    self.next()
+                    nm, ann = self._parse_param()
+                    fields.append(ann)
+            self.expect("OP", ")")
+        return A.EnumVariant(tag=tag, fields=fields, line=t.line, col=t.col)
 
     # --- effects ---
     def parse_eff(self):
@@ -214,10 +259,9 @@ class Parser:
 
     def parse_type_expr(self):
         t = self.peek()
-        if t.kind != "NAME" or t.text not in TYPE_NAMES:
+        if t.kind != "NAME":
             raise ParseError(
-                f"ожидался тип (один из {sorted(TYPE_NAMES)}), получен "
-                f"{t.kind} {t.text!r} в {t.line}:{t.col}"
+                f"ожидался тип, получен {t.kind} {t.text!r} в {t.line}:{t.col}"
             )
         name = self.next().text
         if name == "List" and self.at("OP", "["):
@@ -281,6 +325,8 @@ class Parser:
             if self.at("EOF"):
                 raise ParseError(f"незакрытый блок (нет '}}')")
             stmts.append(self.parse_eff())
+            if self.at("OP", ";"):
+                self.next()
         self.expect("OP", "}")
         return A.Block(stmts=stmts, line=t.line, col=t.col)
 
@@ -370,6 +416,8 @@ class Parser:
 
     def parse_primary(self):
         t = self.peek()
+        if t.kind == "MATCH":
+            return self.parse_match()
         if t.kind == "INT":
             self.next()
             return A.Int(value=int(t.text), line=t.line, col=t.col)
@@ -449,6 +497,47 @@ class Parser:
             ann = self.parse_type_expr()
             return name, ann
         return self.expect_name(), None
+
+    # --- match-выражение (ADT / value dispatch) ---
+    def parse_match(self):
+        t = self.next()  # MATCH
+        scrut = self.parse_expr()
+        self.expect("OP", "{")
+        cases = []
+        while not self.at("OP", "}"):
+            if self.at("EOF"):
+                raise ParseError("незакрытый match (нет '}')")
+            cases.append(self._parse_match_case())
+        self.expect("OP", "}")
+        return A.Match(scrut=scrut, cases=cases, line=t.line, col=t.col)
+
+    def _parse_match_case(self):
+        pat = self._parse_match_pat()
+        self.expect("OP", "=>")
+        body = self.parse_expr()
+        if self.at("OP", ";"):
+            self.next()
+        return A.MatchCase(pat=pat, body=body, line=pat.line, col=pat.col)
+
+    def _parse_match_pat(self):
+        t = self.peek()
+        if t.kind == "NAME" and t.text == "_":
+            self.next()
+            return A.Name(value="_", line=t.line, col=t.col)
+        if t.kind == "NAME":
+            self.next()
+            if self.at("OP", "("):
+                self.next()
+                items = [A.Name(value=t.text, line=t.line, col=t.col)]
+                if not self.at("OP", ")"):
+                    items.append(self._parse_annotated_name())
+                while self.at("OP", ","):
+                    self.next()
+                    items.append(self._parse_annotated_name())
+                self.expect("OP", ")")
+                return A.Tuple(items=items, line=t.line, col=t.col)
+            return A.Name(value=t.text, line=t.line, col=t.col)
+        raise ParseError(f"ожидался паттерн match, получен {t.kind} {t.text!r}")
 
 
 def parse(src, filename="<input>"):

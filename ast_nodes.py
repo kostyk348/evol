@@ -43,6 +43,22 @@ class Lib(Node):
     _fields = ("name", "decls")
 
 
+class EnumVariant(Node):
+    """Конструктор ADT: tag + именованные поля с аннотациями.
+    Circle(r: Float) -> EnumVariant('Circle', [TyFloat])"""
+    _fields = ("tag", "fields")  # fields: list[TypeExpr|None]
+
+
+class EnumDecl(Node):
+    """type Name = V1 | V2(x:Int) | V3(a:Int, b:Int);"""
+    _fields = ("name", "variants")  # variants: list[EnumVariant]
+
+
+class PyImport(Node):
+    """import py "math": sqrt, sin, cos;  -> FFI к Python-модулю."""
+    _fields = ("module", "funcs", "alias")  # module: str, funcs: list[str], alias: str
+
+
 class Rule(Node):
     _fields = ("name", "pat", "body")  # body: eff
 
@@ -94,6 +110,16 @@ class If(Node):
 
 class ForEach(Node):
     _fields = ("var", "coll", "body")  # body: eff, выполняется для каждого elem coll, связывая var
+
+
+class Match(Node):
+    """match scrut { Pat => eff ; Pat => eff } — сопоставление по тегу кортежа."""
+    _fields = ("scrut", "cases")  # cases: list[MatchCase]
+
+
+class MatchCase(Node):
+    """Один вариант match. pat: Name (тег/_ ) или Tuple(тег, поля...)."""
+    _fields = ("pat", "body")
 
 
 class TryCatch(Node):

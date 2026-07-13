@@ -1,0 +1,9 @@
+# Модуль-пример: простой счётчик (импортируется через import "mod_counter.evol";)
+lib counter {
+  rule inc = when (inc, n) => {
+    emit (val, n + 1);
+  };
+  rule dec = when (dec, n) => {
+    emit (val, n - 1);
+  };
+}

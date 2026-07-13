@@ -27,6 +27,9 @@
 | Error handling | `parser.py`, `interpreter.py` | `try/catch/raise` — ловит InterpreterError + EvalError |
 | Corpus #2 | `metrics/corpus2.py` | Held-out корпус (6 задач, seeds зафиксированы, без утечки) |
 | Этап 7 | `lexer.py`, `parser.py`, `ast_nodes.py`, `typechecker.py`, `interpreter.py`, `compiler.py` | **Аннотации типов**: статическая проверка (Int/Str/Bool/Float/Sym/List[T]/Top) + опциональная runtime-проверка через `enforce_types=True` |
+| ADT | `ast_nodes.py`, `parser.py`, `interpreter.py`, `typechecker.py` | `type Name = A(x:T) \| B \| C(y:T);` + `match e { A(x) => ..; B => ..; _ => .. }`; конструктор `A(v)` строит тег-кортеж; исчерпывающий match проверяется тайпчекером (M5/P7) |
+| Модули | `interpreter.py`, `parser.py` | `import "file.evol";` / `import name;` — разрешение путей (рядом/ cwd/ samples), поиск циклов; квалифицированный `spawn Lib.Rule` |
+| FFI | `interpreter.py`, `parser.py` | `import py "math": sqrt, sin, pi;` → вызов Python-функций через `py.sqrt(..)` / `py.pi` (sandbox: запрещены `eval/exec/open/...`) |
 
 ---
 
@@ -43,6 +46,7 @@ python test_stdlib.py        # модули: console, random, file, sim, math, s
 python test_repl.py          # REPL: hot reload, checkpoint, time
 python test_new_features.py  # FLOAT, try/catch/raise, math/string/os модули
 python test_types.py         # Этап 7: аннотации типов, статическая + runtime проверка
+python test_lang_features.py # ADT+match, FFI в Python, модули .evol, M5(P7/P8)
 python metrics/run_metrics.py  # полная таблица метрик (6 задач, прогон #1)
 python metrics/corpus2.py      # held-out корпус #2 (6 задач, без утечки)
 python repl.py                 # REPL: интерактивная оболочка
@@ -148,7 +152,7 @@ closure-присваивания (`x := fun (...) => ...`) в тела Python-ф
 | M2 рекомбинация | отлично | 100% пар компонуются | плоская |
 | M3 энтропия | терпимо/хорошо | ratio=0.70–0.80 к Python | плоская |
 | M4 сем. компрессия | стабильно | 2–17 токенов/шаг АМ | плоская |
-| M5 стат. глубина вывода | хорошо | 2–6 свойств/прогон | плоская |
+| M5 стат. глубина вывода (УТП) | хорошо | 6–8 свойств/прогон: детерминизм тегов, достижимость из boot, покрытие emit, валидность spawn/retract, типобезопасность, исчерпывающий match по ADT, арность конструкторов | плоская |
 | M5-SMT (z3) | отлично | 0–2 по задачам | н/д |
 
 \* M1 против naive завышен искусственно (см. оговорку #2) — не читать как «EVOL в 5–9 раз компактнее Python».
@@ -157,19 +161,20 @@ closure-присваивания (`x := fun (...) => ...`) в тела Python-ф
 
 Seeds зафиксированы ДО замера: `20260713-1`..`20260713-5`. Грамматика LOCKED.
 
-| Задача | N=10 M1_naive | N=100 M1_naive | N=1000 M1_naive | N=10000 M1_naive | **M1_fair** | M2 | M3 | M5 | M5-SMT |
-|--------|---------------|----------------|-----------------|------------------|-------------|-----|-----|-----|--------|
-| dispatcher (DAG) | 0.324 | 0.041 | 0.004 | 0.000 | **0.94** | 100% | 0.682 | 3 | 2 |
-| FSM (2 shared vars) | 0.109 | 0.012 | 0.001 | — | **0.66** | 100% | 0.800 | 4 | 2 |
-| pipeline (parallel) | 0.182 | 0.021 | 0.002 | — | **0.66** | 100% | 0.706 | 4 | 2 |
-| **ratelimiter** (NEW) | 0.277 | 0.030 | 0.003 | — | **0.67** | 100% | 0.819 | 4 | 3 |
-| **cache** (NEW) | 0.339 | 0.040 | 0.004 | — | **0.62** | 100% | 0.666 | 4 | 2 |
-| **httprouter** (control) | 0.231 | — | — | — | **0.94** | 100% | — | 4 | 2 |
+| Задача | N=10 M1_naive | N=100 M1_naive | N=1000 M1_naive | N=10000 M1_naive | **M1_fair@10/100/1000/10000** | M2 | M3 | M5 | M5-SMT |
+|--------|---------------|----------------|-----------------|------------------|-------------------------------|-----|-----|-----|--------|
+| dispatcher (DAG) | 0.324 | 0.041 | 0.004 | 0.000 | **0.94 / 0.94 / 0.94 / 0.94** | 100% | 0.682 | 3 | 2 |
+| FSM (2 shared vars) | 0.109 | 0.012 | 0.001 | — | **0.66 / 0.66 / 0.66 / —** | 100% | 0.800 | 4 | 2 |
+| pipeline (parallel) | 0.182 | 0.021 | 0.002 | — | **0.66 / 0.66 / 0.66 / —** | 100% | 0.706 | 4 | 2 |
+| **ratelimiter** (NEW) | 0.277 | 0.030 | 0.003 | — | **0.67 / 0.67 / 0.67 / —** | 100% | 0.819 | 4 | 3 |
+| **cache** (NEW) | 0.339 | 0.040 | 0.004 | — | **0.62 / 0.62 / 0.62 / —** | 100% | 0.666 | 4 | 2 |
+| **httprouter** (control) | 0.231 | — | — | — | **0.94** (фикс. 50) | 100% | — | 4 | 2 |
 
 Форма M1_naive(N): монотонно ↓ (artifact развёртывания Python, НЕ заслуга EVOL).
-Форма **M1_fair(N): плоская** (~0.6–0.9) — честный результат: EVOL с `forall`
-достигает **паритета** с idiomatic Python на dispatch-задачах, а на fanout (прогон #1)
-**превосходит** (1.83) за счёт компактного `spawn`+`forall`.
+Форма **M1_fair(N): плоская** (baseline O(1) токенов в N) — значения идентичны для
+всех N в каждой строке. Честный результат: EVOL с `forall` достигает **паритета** с
+idiomatic Python на dispatch-задачах, а на fanout (прогон #1) **превосходит** (1.83)
+за счёт компактного `spawn`+`forall`. Единичный кейс — не обобщать на весь язык.
 
 **Сравнение прогонов:** FSM и pipeline — стабильно по M1_fair (0.66–0.69). Dispatcher
 в прогоне #2 компактнее за счёт другого шаблона (M1_fair=0.94). **Первый прогон не был
@@ -192,6 +197,12 @@ Seeds зафиксированы ДО замера: `20260713-1`..`20260713-5`. 
    (явный glue-рост) — поэтому M1_naive занижает Python и Artifактно завышает EVOL.
    Рядом всегда считается **M1_fair** против idiomatic `dict`-диспетчера (O(1) токенов) —
    это честное сравнение выразительности. ВСЕГДА смотрите на M1_fair, а не только на M1_naive.
+   **Конструкция idiomatic-baseline:** `dict` dispatch (`HANDLERS = {...}`), single-dispatch,
+   генераторы/`range` — стандартные идиомы Python. **Важный риск:** оба baseline (naive и
+   idiomatic) написаны **тем же агентом, что и EVOL** (один автор → остаточный bias: агент
+   мог недотянуть до того, как написал бы опытный питонист, И в пользу, и против EVOL).
+   Поэтому честный вывод — **паритет с разумным baseline**, а не «EVOL бьёт эксперта-Python».
+   Настоящая независимая проверка baseline потребовала бы кода от другого автора/человека.
 3. **M3 энтропия — НЕ независимая мера.** Варианты `forall`/`EXPLICIT` генерируются
    **одним и тем же генератором** (это разные проходы машины, а не разные авторы).
    Значение ~0.67–0.82 не доказывает «независимую читаемость» — оно лишь показывает,
@@ -210,11 +221,11 @@ Seeds зафиксированы ДО замера: `20260713-1`..`20260713-5`. 
 
 ```
 evol/
-  lexer.py            # токенизация (forall, import, try, raise, FLOAT)
-  ast_nodes.py        # узлы AST (Import, ForEach, TryCatch, Raise, Float, Spawn(lib=…))
-  parser.py           # рекурсивный спуск -> AST (import, кв.спавн, Call как eff, try/catch, raise)
-  interpreter.py      # δ(S)->S′ + модули stdlib (console, random, file, sim, math, string, os)
-  typechecker.py      # проверки + proven_properties() для M5 + TryCatch/Raise
+  lexer.py            # токенизация (forall, import, try, raise, FLOAT, type/match, '|', ';')
+  ast_nodes.py        # узлы AST (Import, PyImport, EnumDecl, Match, ForEach, TryCatch, Raise, Float, Spawn(lib=…))
+  parser.py           # рекурсивный спуск -> AST (import, кв.спавн, Call как eff, try/catch/raise, type/match/FFI)
+  interpreter.py      # δ(S)->S′ + модули stdlib + import .evol (разрешение путей) + FFI py.* (sandbox)
+  typechecker.py      # проверки + proven_properties() для M5 (P1–P8, включая исчерпывающий ADT-match) + TryCatch/Raise
   compiler.py         # транспиляция EVOL → Python (+ try/catch/raise)
   repl.py             # REPL с hot reload, checkpoint, watch
   metrics/

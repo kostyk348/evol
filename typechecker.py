@@ -16,7 +16,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ast_nodes import (
     Int, Float, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
     Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, ForEach,
-    TryCatch, Raise, Rule, Lib, Import, TypeExpr, TyCon, TyList, TyArrow,
+    TryCatch, Raise, Rule, Lib, Import, EnumDecl, Match, MatchCase,
+    TypeExpr, TyCon, TyList, TyArrow,
 )
 
 from parser import parse
@@ -106,11 +107,11 @@ TINT, TSTR, TSYM, TBOOL, TUNIT, TTOP = TInt(), TStr(), TSym(), TBool(), TUnit(),
 TFLOAT = TFloat()
 
 # Модули стандартной библиотеки (типизуются как динамические: результат Top)
-MODULE_NAMES = {"console", "random", "file", "sim", "math", "string", "os"}
+MODULE_NAMES = {"console", "random", "file", "sim", "math", "string", "os", "py"}
 
 
 def is_numeric(t):
-    return isinstance(t, (TInt, TFloat))
+    return isinstance(t, (TInt, TFloat, TTop))
 
 
 def is_subtype(a, b):
@@ -235,6 +236,15 @@ class TypeChecker:
                 if isinstance(item, Name):
                     env[item.value] = conv_type(item.ann)
 
+    def _bind_match_pattern(self, pat, env):
+        if isinstance(pat, Name):
+            if pat.value != "_":
+                env[pat.value] = TTOP
+        elif isinstance(pat, Tuple) and pat.items:
+            for item in pat.items[1:]:
+                if isinstance(item, Name) and item.value != "_":
+                    env[item.value] = TTOP
+
     def check_rule(self, rule):
         env = {}
         self._bind_pattern(rule.pat, env)
@@ -317,12 +327,24 @@ class TypeChecker:
                 for a in expr.args:
                     self.infer(a, env)
                 return TTOP
+            if isinstance(expr.func, Name) and expr.func.value[:1].isupper():
+                # ADT-конструктор: Circle(3.0) -> (Sym, ...) (тип динамический)
+                for a in expr.args:
+                    self.infer(a, env)
+                return TTOP
             func = self.infer(expr.func, env)
             args = [self.infer(a, env) for a in expr.args]
             if isinstance(func, TFun):
                 self._check_args(expr, args, func.args)
                 return func.ret
             self.err(expr, f"вызов не-функции: {func}")
+            return TTOP
+        if t is Match:
+            self.infer(expr.scrut, env)
+            for case in expr.cases:
+                local = dict(env)
+                self._bind_match_pattern(case.pat, local)
+                self.infer(case.body, local)
             return TTOP
         self.err(expr, f"неизвестный expr {t}")
         return TTOP
@@ -439,7 +461,8 @@ def collect_facts(decls, acc=None):
     if acc is None:
         acc = {"rules": set(), "qualified": set(), "when_tags": set(),
                "emit_tags": set(), "spawns": set(), "retracts": set(),
-               "edges": {}, "tag_count": {}, "rule_tag": {}}
+               "edges": {}, "tag_count": {}, "rule_tag": {},
+               "enums": {}, "variant_arity": {}, "matches": [], "ctors": []}
     for d in decls:
         if isinstance(d, Rule):
             acc["rules"].add(d.name)
@@ -469,7 +492,68 @@ def collect_facts(decls, acc=None):
                         acc["emit_tags"].add(tg)
                     acc.setdefault("edges", {})[(d.name, sub.name)] = etags
                     _scan_eff(sub.body, acc)
+                elif isinstance(sub, EnumDecl):
+                    acc["enums"][sub.name] = {v.tag: len(v.fields) for v in sub.variants}
+                    for v in sub.variants:
+                        acc["variant_arity"][v.tag] = len(v.fields)
+        elif isinstance(d, EnumDecl):
+            acc["enums"][d.name] = {v.tag: len(v.fields) for v in d.variants}
+            for v in d.variants:
+                acc["variant_arity"][v.tag] = len(v.fields)
     return acc
+
+
+def _walk(node, out):
+    """Собирает Match- и ADT-конструктор(Call имя с большой буквы) узлы из программы."""
+    t = type(node)
+    if t is Match:
+        out.append(node)
+    if t is Block:
+        for s in node.stmts:
+            _walk(s, out)
+    elif t in (Seq, Par, Choice):
+        _walk(node.a, out); _walk(node.b, out)
+    elif t is Loop:
+        _walk(node.body, out)
+    elif t is ForEach:
+        _walk(node.body, out)
+    elif t is If:
+        _walk(node.then_branch, out); _walk(node.else_branch, out)
+    elif t is TryCatch:
+        _walk(node.body, out); _walk(node.catch_body, out)
+    elif t is Assign:
+        _walk(node.value, out)
+    elif t is Emit:
+        _walk(node.value, out)
+    elif t is Raise:
+        _walk(node.message, out)
+    elif t is BinOp:
+        _walk(node.left, out); _walk(node.right, out)
+    elif t is UnaryOp:
+        _walk(node.operand, out)
+    elif t is Tuple:
+        for i in node.items:
+            _walk(i, out)
+    elif t is List:
+        for i in node.items:
+            _walk(i, out)
+    elif t is Call:
+        if isinstance(node.func, Name) and node.func.value[:1].isupper():
+            out.append(("ctor", node.func.value, len(node.args), node))
+        _walk(node.func, out)
+        for a in node.args:
+            _walk(a, out)
+    elif t is GetAttr:
+        _walk(node.obj, out)
+    elif t is Fun:
+        _walk(node.body, out)
+    elif t is Rule:
+        _walk(node.body, out)
+    elif t is Lib:
+        for sub in node.decls:
+            _walk(sub, out)
+    elif t is EnumDecl:
+        pass
 
 
 def _spawn_resolves(key, facts):
@@ -520,6 +604,11 @@ def proven_properties(decls):
     type_ok = len(tc.errors) == 0
 
     facts = collect_facts(decls)
+    _walk_list = []
+    for d in decls:
+        _walk(d, _walk_list)
+    facts["matches"] = [n for n in _walk_list if isinstance(n, Match)]
+    facts["ctors"] = [n for n in _walk_list if isinstance(n, tuple) and n[0] == "ctor"]
     proven, failed = [], []
 
     # P1: все spawn указывают на объявленные правила
@@ -580,6 +669,40 @@ def proven_properties(decls):
         proven.append("нет конфликта тегов (детерминизм выбора правила)")
     else:
         failed.append(f"конфликт тегов: {clashes}")
+
+    # P7: исчерпывающий pattern-matching по ADT (отсутствие пропущенных вариантов)
+    enums = facts["enums"]
+    for m in facts["matches"]:
+        tags = set()
+        has_wild = False
+        for c in m.cases:
+            p = c.pat
+            if isinstance(p, Name):
+                if p.value == "_":
+                    has_wild = True
+                else:
+                    tags.add(p.value)
+            elif isinstance(p, Tuple) and p.items:
+                tags.add(p.items[0].value)
+        for en, variants in enums.items():
+            if tags & set(variants):
+                missing = [v for v in variants if v not in tags]
+                if missing and not has_wild:
+                    failed.append(f"match по enum '{en}': непокрыты варианты {missing}")
+                else:
+                    proven.append(f"исчерпывающий match по enum '{en}'")
+
+    # P8: арность ADT-конструкторов совпадает с объявлением варианта
+    varity = facts["variant_arity"]
+    ctor_bad = False
+    for kind, name, argc, node in facts["ctors"]:
+        if name in varity and argc != varity[name]:
+            failed.append(
+                f"конструктор {name}({argc} арг.) != вариант ADT ({varity[name]} арг.)"
+            )
+            ctor_bad = True
+    if facts["ctors"] and not ctor_bad:
+        proven.append("все ADT-конструкторы согласованы по арности с объявлением")
 
     return proven, failed
 
