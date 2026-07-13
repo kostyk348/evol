@@ -110,22 +110,106 @@ def gen_statemachine(n):
 
 
 def gen_pipeline(n):
-    """Задача 3: N стадий через forall — O(1) правил."""
+    """Задача 3: N стадий — явный pipeline с цепочкой emit(next).
+
+    Python baseline: N функций-обработчиков + dispatch loop (как FSM),
+    чтобы честно мерить компрессию относительно явного описания каждой стадии.
+    """
     evol = [
         "lib pipe {",
-        "  rule run = when boot => {",
-        f"    forall i in range(0, {n}) {{",
-        "      emit (stage, i)",
-        "    }",
+        "  rule init = when boot => {",
+        "    emit (stage, 0)",
+        "  }",
+        "  rule run = when (stage, i) => {",
+        f"    if i < {n} then {{ emit (stage, i + 1) }} else {{ emit (done) }}",
         "  }",
         "}",
     ]
-    py = [
-        "def run(n):",
-        f"    for i in range({n}):",
-        "        queue.append(('stage', i))",
+    # Явный pipeline: N функций-обработчиков + dispatch loop
+    py_lines = ["", "def init():", "    queue.append(('stage_0',))"]
+    arms = []
+    for i in range(n):
+        nxt = f"stage_{i+1}" if i + 1 < n else "done"
+        py_lines += [f"def stage_{i}():",
+                     f"    queue.append(('{nxt}',))"]
+        kw = "if" if i == 0 else "elif"
+        arms += [f"        {kw} ev[0] == 'stage_{i}':", f"            stage_{i}()"]
+    py_lines += ["", "def run():", "    init()",
+                 "    while queue:", "        ev = queue.pop(0)"] + arms + \
+                ["        else:", "            pass"]
+    py = "\n".join(py_lines[1:])
+    return "\n".join(evol), py
+
+
+def gen_fanout(n):
+    """Задача 5: fan-out — одно сообщение порождает N подзадач.
+
+    EVOL: O(1) правил + forall. Python: N функций-обработчиков + dispatch.
+    Тестирует: «один → много» (key pattern для параллельных систем).
+    """
+    evol = [
+        "lib fanout {",
+        "  rule init = when boot => {",
+        "    emit (work, 0)",
+        "  }",
+        "  rule fan = when (work, i) => {",
+        f"    if i < {n} then {{",
+        "      spawn Worker",
+        "      emit (work, i + 1)",
+        f"    }} else {{ emit (all_done) }}",
+        "  }",
+        "  rule worker = when go => {",
+        "    emit (done)",
+        "  }",
+        "}",
     ]
-    return "\n".join(evol), "\n".join(py)
+    # Явный fan-out: N функций + dispatch loop
+    py_lines = ["", "def init():", "    queue.append(('work_0',))"]
+    arms = []
+    for i in range(n):
+        nxt = f"work_{i+1}" if i + 1 < n else "done"
+        py_lines += [f"def work_{i}():",
+                     f"    workers.append('worker_{i}')",
+                     f"    queue.append(('{nxt}',))"]
+        kw = "if" if i == 0 else "elif"
+        arms += [f"        {kw} ev[0] == 'work_{i}':", f"            work_{i}()"]
+    py_lines += ["", "def run():", "    workers = []",
+                 "    init()",
+                 "    while queue:", "        ev = queue.pop(0)"] + arms + \
+                ["        else:", "            pass"]
+    py = "\n".join(py_lines[1:])
+    return "\n".join(evol), py
+
+
+def gen_priority_router(n):
+    """Задача 6: priority router — N маршрутов, роутер выбирает по приоритету.
+
+    EVOL: O(1) правил с guard-цепочкой. Python: N функций + sorted dispatch.
+    Тестирует: «много путей, один вход» (mesh-тип топологии).
+    """
+    evol = [
+        "lib router {",
+        "  rule init = when boot => {",
+        "    emit (msg, 0)",
+        "  }",
+        "  rule route = when (msg, p) => {",
+        f"    if p < {n} then {{ emit (route, p) }} else {{ emit (drop) }}",
+        "  }",
+        "}",
+    ]
+    # Явный router: N функций-маршрутизаторов + dispatch loop
+    py_lines = ["", "def init():", "    queue.append(('msg_0',))"]
+    arms = []
+    for i in range(n):
+        py_lines += [f"def route_{i}():",
+                     f"    queue.append(('routed_{i}',))"]
+        kw = "if" if i == 0 else "elif"
+        arms += [f"        {kw} ev[0] == 'msg_{i}':", f"            route_{i}()"]
+    py_lines += ["", "def run():", "    init()",
+                 "    while queue:", "        ev = queue.pop(0)"] + arms + \
+                ["        else:", "            pass"]
+    py = "\n".join(py_lines[1:])
+    return "\n".join(evol), py
 
 
 def gen_di(fixed=50):
@@ -284,6 +368,10 @@ def main():
     run_task("statemachine", "2: State machine (N состояний, guards)", gen_statemachine,
              ["boot"], ns_small)
     run_task("pipeline", "3: Data pipeline (N стадий)", gen_pipeline,
+             ["boot"], ns_small)
+    run_task("fanout", "5: Fan-out (одно → N подзадач)", gen_fanout,
+             ["boot"], ns_small)
+    run_task("priority_router", "6: Priority router (N маршрутов)", gen_priority_router,
              ["boot"], ns_small)
     # задача 4 — фиксированный размер, не масштабируем
     evol_src, py_src = gen_di(50)
