@@ -55,11 +55,11 @@ class SimState:
         with open(path, encoding="utf-8") as f:
             src = f.read()
         ast = parse(src, path)
-        self._load_ast(ast)
+        self._load_ast(ast, source=path)
         self._file_hashes[path] = self._file_hash(path)
         return f"Загружено: {path} ({len(self.rules)} правил)"
 
-    def _load_ast(self, ast):
+    def _load_ast(self, ast, source="loaded"):
         table = collect_rule_table(ast)
         for (lib, name), node in table.items():
             self.rules.append({
@@ -69,7 +69,7 @@ class SimState:
                 "prio": 0,
                 "pat": node.pat,
                 "eff": node.body,
-                "source": "loaded",
+                "source": source,
             })
             self._rule_id_counter += 1
 
