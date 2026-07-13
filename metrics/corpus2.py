@@ -479,7 +479,116 @@ def gen_httprouter_rust2():
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  EXPLICIT variants (for M3: 2nd independent implementation)
+#  FAIR baselines: idiomatic dict/function dispatch (O(1) tokens in N)
+#  Честное сравнение — так пишет нормальный питонист (без ручного
+#  развёртывания N веток). Используется для M1_fair наравне с naive.
+# ═══════════════════════════════════════════════════════════════════════
+
+def gen_dispatcher_py_fair2(n):
+    return "\n".join([
+        "HANDLERS = {",
+        "    'req': lambda x: queue.append(('process', x)),",
+        "    'process': lambda x: queue.append(('result', x)),",
+        "    'result': lambda v: queue.append(('ack', v)),",
+        "}",
+        "queue = []",
+        "def run():",
+        f"    for i in range({n}): queue.append(('req', i))",
+        "    while queue:",
+        "        ev = queue.pop(0)",
+        "        HANDLERS[ev[0]](ev[1])",
+    ])
+
+
+def gen_statemachine_py_fair2(n):
+    return "\n".join([
+        "queue = []",
+        "def step(x):",
+        f"    if x < {n}: queue.append(('s', x + 1))",
+        "    else: queue.append(('halt',))",
+        "def run():",
+        "    queue.append(('s', 0))",
+        "    while queue:",
+        "        ev = queue.pop(0)",
+        "        if ev[0] == 's': step(ev[1])",
+    ])
+
+
+def gen_pipeline_py_fair2(n):
+    return "\n".join([
+        "queue = []",
+        "def stage(i):",
+        f"    if i < {n}: queue.append(('stage', i + 1))",
+        "    else: queue.append(('done',))",
+        "def run():",
+        "    queue.append(('stage', 0))",
+        "    while queue:",
+        "        ev = queue.pop(0)",
+        "        if ev[0] == 'stage': stage(ev[1])",
+    ])
+
+
+def gen_ratelimiter_py_fair2(n):
+    return "\n".join([
+        "queue = []",
+        "def check(node, tokens):",
+        f"    if node < {n}:",
+        "        if tokens > 0: queue.append(('allow', node))",
+        "        else: queue.append(('deny', node))",
+        "    else: queue.append(('rate_done',))",
+        "def allow(node): queue.append(('check', node + 1, 100))",
+        "def deny(node): queue.append(('backpressure', node))",
+        "def bp(node):",
+        "    if node > 0: queue.append(('check', node - 1, 50))",
+        "    else: queue.append(('bp_done',))",
+        "def run():",
+        "    queue.append(('check', 0, 100))",
+        "    while queue:",
+        "        ev = queue.pop(0)",
+        "        if ev[0] == 'check': check(ev[1], ev[2])",
+        "        elif ev[0] == 'allow': allow(ev[1])",
+        "        elif ev[0] == 'deny': deny(ev[1])",
+        "        elif ev[0] == 'backpressure': bp(ev[1])",
+    ])
+
+
+def gen_cache_py_fair2(n):
+    return "\n".join([
+        "queue = []",
+        "def get(key):",
+        f"    if key < {n}: queue.append(('hit', key))",
+        "    else: queue.append(('cache_done',))",
+        "def hit(key): queue.append(('evict', key))",
+        "def evict(key): queue.append(('invalidate', key))",
+        "def inv(key): queue.append(('get', key + 1))",
+        "def run():",
+        "    queue.append(('get', 0))",
+        "    while queue:",
+        "        ev = queue.pop(0)",
+        "        if ev[0] == 'get': get(ev[1])",
+        "        elif ev[0] == 'hit': hit(ev[1])",
+        "        elif ev[0] == 'evict': evict(ev[1])",
+        "        elif ev[0] == 'invalidate': inv(ev[1])",
+    ])
+
+
+def gen_httprouter_py_fair2():
+    return "\n".join([
+        "ROUTES = {i: ['auth', 'logging', 'ratelimit'][i % 3] for i in range(50)}",
+        "queue = []",
+        "def handle(path, mw): queue.append(('response', path, 200))",
+        "def route(path, method): queue.append(('route', path, ROUTES[path]))",
+        "def run():",
+        "    for i in range(50): queue.append(('req', i, ['GET', 'POST', 'PUT', 'DELETE'][i % 4]))",
+        "    while queue:",
+        "        ev = queue.pop(0)",
+        "        if ev[0] == 'req': route(ev[1], ev[2])",
+        "        elif ev[0] == 'route': handle(ev[1], ev[2])",
+    ])
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  EXPLICIT variants (for M3: 2nd machine-generated implementation)
 # ═══════════════════════════════════════════════════════════════════════
 
 def evol_dispatcher_explicit2(n):
@@ -701,11 +810,14 @@ def metric5(ast):
 
 def run_task(task_key, name, gen_evol_fn, gen_py_fn, gen_rust_fn,
              evol_explicit_fn, py_explicit_fn,
-             bootstrap, ns, fixed_n=None):
-    """Run a single task across all N values."""
+             bootstrap, ns, fixed_n=None, gen_py_fair_fn=None):
+    """Run a single task across all N values.
+    M1 — EVOL vs naive-unrolled Py (для честности сохраняем).
+    M1_fair — EVOL vs idiomatic dict-Py (O(1) токенов) — честное сравнение.
+    """
     print(f"\n### Задача: {name}\n")
-    print(f"| N | M1 EVOL/Py | M1 EVOL/Rust | M2 % (K) | M4 ток/шаг | M5 стат | M5-SMT | M3 (Hc/Hb) |")
-    print(f"|---|---|---|---|---|---|---|---|")
+    print(f"| N | M1 EVOL/naive-Py | M1_fair EVOL/idiomatic-Py | M1 EVOL/Rust | M2 % (K) | M4 ток/шаг | M5 стат | M5-SMT | M3 (Hc/Hb) |")
+    print(f"|---|---|---|---|---|---|---|---|---|")
 
     results = []
     for n in ns:
@@ -717,6 +829,16 @@ def run_task(task_key, name, gen_evol_fn, gen_py_fn, gen_rust_fn,
         t_e = evol_tokens(evol_src)
         t_p = python_tokens(py_src)
         m1 = t_e / t_p if t_p > 0 else float("inf")
+
+        py_fair_src = (gen_py_fair_fn(n) if fixed_n is None
+                       else gen_py_fair_fn(fixed_n)) if gen_py_fair_fn else None
+        if py_fair_src is not None:
+            t_p_fair = python_tokens(py_fair_src)
+            m1_fair = t_e / t_p_fair if t_p_fair > 0 else float("inf")
+            m1_fair_s = f"{t_e}/{t_p_fair} = {m1_fair:.3f}"
+        else:
+            m1_fair = float("nan")
+            m1_fair_s = "—"
 
         t_r = C.rust_tokens(rust_src)
         m1_r = t_e / t_r if t_r > 0 else float("inf")
@@ -740,15 +862,16 @@ def run_task(task_key, name, gen_evol_fn, gen_py_fn, gen_rust_fn,
             m3_s = "—"
 
         if n <= 1000:
-            print(f"| {n} | {t_e}/{t_p} = {m1:.3f} | {m1_r_s} | {m2_pct:.0f}% (K={k}) | {m4:.2f} ({steps} шагов) | {m5} | {m5smt} | {m3_s} |")
+            print(f"| {n} | {t_e}/{t_p} = {m1:.3f} | {m1_fair_s} | {m1_r_s} | {m2_pct:.0f}% (K={k}) | {m4:.2f} ({steps} шагов) | {m5} | {m5smt} | {m3_s} |")
         else:
-            print(f"| {n} | {t_e}/{t_p} = {m1:.3f} | {m1_r_s} | {m2_pct:.0f}% (K={k}) | — | — | — | — |")
-        results.append((n, m1, m1_r, m2_pct, m4, steps, m5, m5smt))
+            print(f"| {n} | {t_e}/{t_p} = {m1:.3f} | {m1_fair_s} | {m1_r_s} | {m2_pct:.0f}% (K={k}) | — | — | — | — |")
+        results.append((n, m1, m1_fair, m1_r, m2_pct, m4, steps, m5, m5smt))
 
     return results
 
 
-def run_control(name, gen_evol_fn, gen_py_fn, gen_rust_fn, bootstrap):
+def run_control(name, gen_evol_fn, gen_py_fn, gen_rust_fn, bootstrap,
+                gen_py_fair_fn=None):
     """Run a fixed-size control task."""
     evol_src = gen_evol_fn()
     py_src = gen_py_fn()
@@ -763,13 +886,22 @@ def run_control(name, gen_evol_fn, gen_py_fn, gen_rust_fn, bootstrap):
     m4, steps = metric4(evol_src, bootstrap)
     m5, _, _ = metric5(ast)
     m5smt, _ = SMT.smt_properties(ast)
+    if gen_py_fair_fn is not None:
+        t_p_fair = python_tokens(gen_py_fair_fn())
+        m1_fair = t_e / t_p_fair if t_p_fair > 0 else float("inf")
+        m1_fair_s = f"M1_fair EVOL/idiomatic-Py = {t_e}/{t_p_fair} = {m1_fair:.3f}"
+    else:
+        m1_fair = float("nan")
+        m1_fair_s = "M1_fair: —"
     print(f"\n### Задача: {name} (фикс. 50 маршрутов)\n")
-    print(f"M1 EVOL/Py = {t_e}/{t_p} = {m1:.3f}")
+    print(f"M1 EVOL/naive-Py = {t_e}/{t_p} = {m1:.3f}")
+    print(f"{m1_fair_s}")
     print(f"M1 EVOL/Rust = {t_e}/{t_r} = {m1_r:.3f}")
     print(f"M2 = {m2_pct:.0f}% (K={k})")
     print(f"M4 = {m4:.2f} ({steps} шагов)")
     print(f"M5 = {m5} (SMT = {m5smt})")
-    return {"m1_py": m1, "m1_rust": m1_r, "m2": m2_pct, "m4": m4, "m5": m5, "m5smt": m5smt}
+    return {"m1_py": m1, "m1_fair": m1_fair, "m1_rust": m1_r, "m2": m2_pct,
+            "m4": m4, "m5": m5, "m5smt": m5smt}
 
 
 def main():
@@ -791,41 +923,41 @@ def main():
         "dispatcher", "1: Event dispatcher (DAG dependencies)",
         gen_dispatcher_ev2, gen_dispatcher_py2, gen_dispatcher_rust2,
         evol_dispatcher_explicit2, py_dispatcher_explicit2,
-        ["boot"], ns_full)
+        ["boot"], ns_full, gen_py_fair_fn=gen_dispatcher_py_fair2)
 
     # Task 2: State machine
     all_results["statemachine"] = run_task(
         "statemachine", "2: State machine (N states, 2 shared vars)",
         gen_statemachine_ev2, gen_statemachine_py2, gen_statemachine_rust2,
         evol_statemachine_explicit2, py_statemachine_explicit2,
-        ["boot"], ns_small)
+        ["boot"], ns_small, gen_py_fair_fn=gen_statemachine_py_fair2)
 
     # Task 3: Pipeline
     all_results["pipeline"] = run_task(
         "pipeline", "3: Data pipeline (N stages, parallelism)",
         gen_pipeline_ev2, gen_pipeline_py2, gen_pipeline_rust2,
         evol_pipeline_explicit2, py_pipeline_explicit2,
-        ["boot"], ns_small)
+        ["boot"], ns_small, gen_py_fair_fn=gen_pipeline_py_fair2)
 
     # Task 4: Rate limiter (NEW)
     all_results["ratelimiter"] = run_task(
         "ratelimiter", "4: Rate limiter / backpressure (NEW)",
         gen_ratelimiter_ev2, gen_ratelimiter_py2, gen_ratelimiter_rust2,
         evol_ratelimiter_explicit2, py_ratelimiter_explicit2,
-        ["boot"], ns_small)
+        ["boot"], ns_small, gen_py_fair_fn=gen_ratelimiter_py_fair2)
 
     # Task 5: Cache (NEW)
     all_results["cache"] = run_task(
         "cache", "5: Concurrent cache with invalidation (NEW)",
         gen_cache_ev2, gen_cache_py2, gen_cache_rust2,
         evol_cache_explicit2, py_cache_explicit2,
-        ["boot"], ns_small)
+        ["boot"], ns_small, gen_py_fair_fn=gen_cache_py_fair2)
 
     # Task 6: HTTP router (control, fixed)
     all_results["httprouter"] = run_control(
         "6: HTTP router with middleware (control, ~50 routes)",
         gen_httprouter_ev2, gen_httprouter_py2, gen_httprouter_rust2,
-        ["boot"])
+        ["boot"], gen_py_fair_fn=gen_httprouter_py_fair2)
 
     # Summary
     print("\n" + "=" * 70)
@@ -843,6 +975,15 @@ def main():
 
     hr = all_results["httprouter"]
     print(f"| httprouter     | {hr['m1_py']:.3f} (fixed) | — | — | — | {hr['m5']} |")
+
+    print("\n--- M1_fair (EVOL vs idiomatic dict-Py, O(1) токенов) ---")
+    print(f"| Task | N=10 | N=100 | N=1000 |")
+    print(f"|------|-------|-------|--------|")
+    for key in ["dispatcher", "statemachine", "pipeline", "ratelimiter", "cache"]:
+        r = all_results[key]
+        fair = {n: m1_fair for n, _, m1_fair, *_ in r if isinstance(m1_fair, float)}
+        print(f"| {key:14s} | {fmt(fair.get(10, '—')):>5s} | {fmt(fair.get(100, '—')):>5s} | {fmt(fair.get(1000, '—')):>6s} |")
+    print(f"| httprouter     | {fmt(hr['m1_fair'])} (fixed) | — | — |")
 
     print("\n--- Форма кривой M1(N) ---")
     print("Если M1 ~ константа при росте N -> плоская кривая (отлично).")

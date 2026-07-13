@@ -212,6 +212,61 @@ def gen_priority_router(n):
     return "\n".join(evol), py
 
 
+# ---------------- FAIR baselines (idiomatic dict/функция, O(1) в N) ----------------
+# Честное сравнение: так пишет питонист без ручного развёртывания N веток.
+
+def gen_statemachine_fair(n):
+    py = [
+        "def st(x):",
+        f"    if x < {n}: queue.append(('s', x + 1))",
+        "    else: queue.append(('halt',))",
+        "def sm():",
+        "    queue.append(('s', 0))",
+        "    while queue:",
+        "        ev = queue.pop(0)",
+        "        if ev[0] == 's': st(ev[1])",
+    ]
+    return "\n".join(py)
+
+
+def gen_pipeline_fair(n):
+    py = [
+        "def stage(i):",
+        f"    if i < {n}: queue.append(('stage', i + 1))",
+        "    else: queue.append(('done',))",
+        "def run():",
+        "    queue.append(('stage', 0))",
+        "    while queue:",
+        "        ev = queue.pop(0)",
+        "        if ev[0] == 'stage': stage(ev[1])",
+    ]
+    return "\n".join(py)
+
+
+def gen_fanout_fair(n):
+    py = [
+        "WORKERS = [Worker() for _ in range(n)]",
+        "def run():",
+        f"    for i in range({n}):",
+        "        WORKERS[i].start(i)",
+    ]
+    return "\n".join(py)
+
+
+def gen_priority_router_fair(n):
+    py = [
+        "def route(p):",
+        f"    if p < {n}: queue.append(('route', p))",
+        "    else: queue.append(('drop',))",
+        "def run():",
+        "    queue.append(('msg', 0))",
+        "    while queue:",
+        "        ev = queue.pop(0)",
+        "        if ev[0] == 'msg': route(ev[1])",
+    ]
+    return "\n".join(py)
+
+
 def gen_di(fixed=50):
     """Задача 4 (контрольная, не масштабируется): DI из fixed сервисов."""
     evol = [
@@ -323,10 +378,10 @@ def metric5(ast):
 
 # ---------------- прогон ----------------
 
-def run_task(key, name, gen_fn, bootstrap, ns):
+def run_task(key, name, gen_fn, bootstrap, ns, gen_fair_fn=None):
     print(f"\n### Задача: {name}\n")
-    print(f"| N | M1 EVOL/Py | M1 EVOL/Rust | M2 % (K) | M4 ток/шаг | M5 стат | M5-SMT | M3 (Hc/Hb) |")
-    print(f"|---|---|---|---|---|---|---|---|")
+    print(f"| N | M1 EVOL/naive-Py | M1_fair EVOL/idiomatic-Py | M1 EVOL/Rust | M2 % (K) | M4 ток/шаг | M5 стат | M5-SMT | M3 (Hc/Hb) |")
+    print(f"|---|---|---|---|---|---|---|---|---|")
     for n in ns:
         evol_src, py_src = gen_fn(n)
         ast = parse(evol_src, f"{name}_{n}")
@@ -335,6 +390,12 @@ def run_task(key, name, gen_fn, bootstrap, ns):
         t_e = evol_tokens(evol_src)
         t_p = python_tokens(py_src)
         m1 = t_e / t_p if t_p > 0 else float("inf")
+        if gen_fair_fn is not None:
+            t_pf = python_tokens(gen_fair_fn(n))
+            m1_fair = t_e / t_pf if t_pf > 0 else float("inf")
+            m1_fair_s = f"{t_e}/{t_pf} = {m1_fair:.3f}"
+        else:
+            m1_fair_s = "—"
         # второй baseline — Rust
         rust_src = C.RUST.get(key)
         if rust_src:
@@ -355,7 +416,7 @@ def run_task(key, name, gen_fn, bootstrap, ns):
             m3_s = f"{ratio:.3f}"
         else:
             m3_s = "—"
-        print(f"| {n} | {t_e}/{t_p} = {m1:.3f} | {m1_r_s} | {m2_pct:.0f}% (K={k}) | {m4:.2f} ({steps} шагов) | {m5} | {m5smt} | {m3_s} |")
+        print(f"| {n} | {t_e}/{t_p} = {m1:.3f} | {m1_fair_s} | {m1_r_s} | {m2_pct:.0f}% (K={k}) | {m4:.2f} ({steps} шагов) | {m5} | {m5smt} | {m3_s} |")
     print()
 
 
@@ -366,13 +427,13 @@ def main():
     run_task("dispatcher", "1: Event dispatcher (цепочка зависимостей)", gen_dispatcher,
              ["boot"], ns_full)
     run_task("statemachine", "2: State machine (N состояний, guards)", gen_statemachine,
-             ["boot"], ns_small)
+             ["boot"], ns_small, gen_fair_fn=gen_statemachine_fair)
     run_task("pipeline", "3: Data pipeline (N стадий)", gen_pipeline,
-             ["boot"], ns_small)
+             ["boot"], ns_small, gen_fair_fn=gen_pipeline_fair)
     run_task("fanout", "5: Fan-out (одно → N подзадач)", gen_fanout,
-             ["boot"], ns_small)
+             ["boot"], ns_small, gen_fair_fn=gen_fanout_fair)
     run_task("priority_router", "6: Priority router (N маршрутов)", gen_priority_router,
-             ["boot"], ns_small)
+             ["boot"], ns_small, gen_fair_fn=gen_priority_router_fair)
     # задача 4 — фиксированный размер, не масштабируем
     evol_src, py_src = gen_di(50)
     ast = parse(evol_src, "di")
