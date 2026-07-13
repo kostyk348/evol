@@ -30,12 +30,16 @@
 
 ```bash
 cd evol
-python test_parser.py          # Этап 2: валидное принято, невалидное отклонено
-python test_interpreter.py     # Этап 3: семантика, par, forall, квалифицированный spawn
-python test_typechecker.py     # Этап 4: ошибки типов/spawn/import отклонены, M5
-python test_smt.py             # Опция B: SMT-проверка гвардов (z3)
-python test_option_c.py        # Опция C: Rust-baseline + M3 энтропия
-python metrics/run_metrics.py  # Этапы 5/6 + опции: полная таблица метрик
+python test_parser.py          # валидное принято, невалидное отклонено
+python test_interpreter.py     # семантика, par, forall, квалифицированный spawn
+python test_typechecker.py     # ошибки типов/spawn/import, M5
+python test_smt.py             # SMT-проверка гвардов (z3)
+python test_option_c.py        # Rust-baseline + M3 энтропия
+python test_stdlib.py          # модули: console, random, file, sim
+python test_repl.py            # REPL: hot reload, checkpoint, time
+python metrics/run_metrics.py  # полная таблица метрик (6 задач)
+python repl.py                 # REPL: интерактивная оболочка
+python compiler.py file.evol   # транспиляция EVOL → Python
 ```
 
 Требуется Python 3.10+ (использовался 3.14). Для опции B нужен `z3-solver` (`pip install z3-solver`).
@@ -81,12 +85,12 @@ lib demo {
 
 | Метрика | Зона | Сырое число | Форма M(N) |
 |---|---|---|---|
-| M1 компрессия vs Python | отлично | dispatcher=0.61, FSM=0.11, pipeline=1.21 | плоская |
-| M1 компрессия vs Rust | отлично | dispatcher=0.49, FSM=0.12, pipeline=0.55 | плоская |
+| M1 компрессия vs Python | отлично | dispatcher=0.61, FSM=0.11, pipeline=0.18, fanout=0.19, router=0.18 | плоская |
+| M1 компрессия vs Rust | отлично | dispatcher=0.49, FSM=0.12, pipeline=0.24, fanout=0.21, router=0.23 | плоская |
 | M2 рекомбинация | отлично | 100% пар компонуются | плоская |
-| M3 энтропия | терпимо/хорошо | ratio=0.67–0.80 к Python | плоская |
-| M4 сем. компрессия | стабильно | 4–30 токенов/шаг АМ | плоская |
-| M5静态 глубина вывода | хорошо | 4–6 свойств/прогон | плоская |
+| M3 энтропия | терпимо/хорошо | ratio=0.70–0.80 к Python | плоская |
+| M4 сем. компрессия | стабильно | 2–17 токенов/шаг АМ | плоская |
+| M5 стат. глубина вывода | хорошо | 2–6 свойств/прогон | плоская |
 | M5-SMT (z3) | отлично | 0–2 по задачам | н/д |
 | M6 обучаемость | неизмеримо | требует живых людей | — |
 
@@ -118,27 +122,32 @@ lib demo {
 evol/
   lexer.py            # токенизация (forall, import)
   ast_nodes.py        # узлы AST (Import, ForEach, Spawn(lib=…))
-  parser.py           # рекурсивный спуск -> AST (import, квалифицированный spawn)
-  interpreter.py      # δ(S)->S′ на AST (forall, квалифицированный spawn, внешние модули)
-  typechecker.py      # проверки + proven_properties() для M5 (квалифицированные имена)
+  parser.py           # рекурсивный спуск -> AST (import, кв.спавн, Call как eff)
+  interpreter.py      # δ(S)->S′ + модули stdlib (console, random, file, sim)
+  typechecker.py      # проверки + proven_properties() для M5
+  compiler.py         # транспиляция EVOL → Python
+  repl.py             # REPL с hot reload, checkpoint, watch
   metrics/
     run_metrics.py    # генератор задач + подсчёт M1/M2/M3/M4/M5/SMT
-    smt_prove.py      # z3-SMT: проверка гвардов (эксклюзивность + полнота)
+    smt_prove.py      # z3-SMT: проверка гвардов
     option_c.py       # Rust-базовый вариант + M3 энтропия
-  samples/            # .evol файлы (валидные/невалидные/демо/импорт/кв.спавн)
-  test_parser.py
-  test_interpreter.py
-  test_typechecker.py
-  test_smt.py
-  test_option_c.py
+  samples/            # .evol файлы (симуляции, протоколы, игры, DI)
+  test_*.py           # тесты (7 suites, все зелёные)
 ```
 
 ---
 
-## Дальше (Этап 7)
+## Дальше
 
-Приоритеты по убыванию:
-1. **Основной корпус 15–20 задач** (roadmap Этап 0) — пользователь предоставляет,
-   агент не видел, метрики замеряются с нуля.
-2. **M6 обучаемость** — требует эксперимента с живыми людьми.
-3. Оси в «плохо» править только после честного baseline.
+Реализовано:
+- [x] Стандартная библиотека (console, random, file, sim)
+- [x] REPL с hot reload (как Lisp)
+- [x] Checkpoint save/restore
+- [x] Транспиляция EVOL → Python
+- [x] Непрерывное время (dt)
+
+Осталось:
+- [ ] Error handling (try/catch)
+- [ ] Типы (аннотации + статическая проверка)
+- [ ] FFI (системные вызовы, сеть)
+- [ ] Основной корпус 15–20 задач
