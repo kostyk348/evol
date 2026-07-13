@@ -1,0 +1,67 @@
+lib reliable_channel {
+  rule init = when boot => {
+    sim.set_seed(777)
+    sent := 0
+    acked := 0
+    lost := 0
+    next_seq := 0
+    window := 3
+    console.println("=== Reliable Channel (stop-and-wait) ===")
+    emit (try_send)
+  }
+
+  rule try_send = when try_send => {
+    if acked < 5 then {
+      if sent - acked < window then {
+        pkt_id := next_seq
+        next_seq := next_seq + 1
+        sent := sent + 1
+        roll := random.int(1, 10)
+        if roll <= 2 then {
+          console.println("  [LOSS] пакет", pkt_id, "потерян (roll=", roll, ")")
+          lost := lost + 1
+          emit (timeout, pkt_id)
+        } else {
+          console.println("  [SENT] пакет", pkt_id, "доставлен")
+          emit (recv_ack, pkt_id)
+        }
+        emit (try_send)
+      } else {
+        console.println("  окно заполнено, жду ACK...")
+        emit (wait_ack)
+      }
+    } else {
+      emit (done)
+    }
+  }
+
+  rule recv_ack_handler = when (recv_ack, id) => {
+    acked := acked + 1
+    console.println("  [ACK ] подтверждён пакет", id, " (acked=", acked, "/5)")
+  }
+
+  rule timeout_handler = when (timeout, id) => {
+    console.println("  [RETX] повторная отправка пакета", id)
+    roll := random.int(1, 10)
+    if roll <= 2 then {
+      console.println("  [LOSS] повторно потерян пакет", id)
+      emit (timeout, id)
+    } else {
+      console.println("  [SENT] пакет", id, "доставлен при повторе")
+      acked := acked + 1
+      console.println("  [ACK ] подтверждён пакет", id, " (acked=", acked, "/5)")
+    }
+  }
+
+  rule wait = when wait_ack => {
+    emit (try_send)
+  }
+
+  rule finish = when done => {
+    console.println("=== ИТОГО ===")
+    console.println("  отправлено:", sent)
+    console.println("  подтверждено:", acked)
+    console.println("  потеряно:", lost)
+    console.println("  эффективность:", acked, "/", sent)
+  }
+}

@@ -1,0 +1,92 @@
+lib tcp_handshake {
+  rule boot = when boot => {
+    sim.set_seed(123)
+    state := "CLOSED"
+    seq_num := 0
+    ack_num := 0
+    attempts := 0
+    connected := 0
+    console.println("=== TCP 3-Way Handshake Simulation ===")
+    console.println("клиент: CLOSED")
+    emit (start_connect)
+  }
+
+  rule start = when start_connect => {
+    console.println(">> клиент отправляет SYN")
+    seq_num := random.int(1000, 9999)
+    state := "SYN_SENT"
+    attempts := attempts + 1
+    console.println("   seq=", seq_num, "state=", state)
+    emit (server_receive_syn)
+  }
+
+  rule srv_syn = when server_receive_syn => {
+    console.println("<< сервер получил SYN")
+    console.println("   >> сервер отправляет SYN-ACK")
+    ack_num := seq_num + 1
+    seq_num := random.int(1000, 9999)
+    state := "SYN_RECEIVED"
+    console.println("   seq=", seq_num, "ack=", ack_num, "state=", state)
+    emit (client_receive_synack)
+  }
+
+  rule cli_ack = when client_receive_synack => {
+    console.println(">> клиент получил SYN-ACK")
+    console.println("   >> клиент отправляет ACK")
+    ack_num := seq_num + 1
+    state := "ESTABLISHED"
+    connected := 1
+    console.println("   ack=", ack_num, "state=", state)
+    emit (server_receive_ack)
+  }
+
+  rule srv_est = when server_receive_ack => {
+    console.println("<< сервер получил ACK")
+    state := "ESTABLISHED"
+    console.println("=== СОЕДИНЕНИЕ УСТАНОВЛЕНО ===")
+    console.println("   состояние:", state)
+    console.println("   попыток:", attempts)
+    emit (send_data)
+  }
+
+  rule send = when send_data => {
+    console.println("--- передача данных ---")
+    msg_id := 0
+    emit (transmit, msg_id)
+  }
+
+  rule transmit_data = when (transmit, id) => {
+    if id < 3 then {
+      payload := random.int(100, 999)
+      console.println("   пакет", id, ": данные", payload, "ACK=", ack_num)
+      ack_num := ack_num + 1
+      msg_id := id + 1
+      emit (transmit, msg_id)
+    } else {
+      emit (close)
+    }
+  }
+
+  rule close_conn = when close => {
+    console.println("--- закрытие соединения ---")
+    console.println(">> клиент отправляет FIN")
+    state := "FIN_WAIT_1"
+    emit (server_receive_fin)
+  }
+
+  rule srv_fin = when server_receive_fin => {
+    console.println("<< сервер получил FIN")
+    console.println("   >> сервер отправляет FIN-ACK")
+    state := "CLOSE_WAIT"
+    emit (client_receive_finack)
+  }
+
+  rule cli_final = when client_receive_finack => {
+    console.println(">> клиент получил FIN-ACK")
+    state := "TIME_WAIT"
+    console.println("   >> клиент отправляет ACK (финальный)")
+    state := "CLOSED"
+    console.println("=== СОЕДИНЕНИЕ ЗАКРЫТО ===")
+    console.println("   финальное состояние:", state)
+  }
+}
