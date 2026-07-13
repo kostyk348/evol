@@ -21,9 +21,9 @@ import random as _random
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ast_nodes import (
-    Int, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
+    Int, Float, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
     Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, ForEach,
-    Rule, Lib, Import,
+    TryCatch, Raise, Rule, Lib, Import,
 )
 from parser import parse
 
@@ -121,6 +121,12 @@ def _call_module(mod, func, args):
         return _call_file(func, args)
     if mod == "sim":
         return _call_sim(func, args)
+    if mod == "math":
+        return _call_math(func, args)
+    if mod == "string":
+        return _call_string(func, args)
+    if mod == "os":
+        return _call_os(func, args)
     raise InterpreterError(f"неизвестный модуль '{mod}'")
 
 
@@ -207,8 +213,93 @@ def _call_sim(func, args):
     raise InterpreterError(f"sim: неизвестная функция '{func}'")
 
 
+def _call_math(func, args):
+    import math as _math
+    if func == "sqrt":
+        if len(args) != 1: raise InterpreterError("math.sqrt(x)")
+        return int(_math.sqrt(args[0]))
+    if func == "pow":
+        if len(args) != 2: raise InterpreterError("math.pow(x, y)")
+        return int(_math.pow(args[0], args[1]))
+    if func == "sin":
+        if len(args) != 1: raise InterpreterError("math.sin(x)")
+        return _math.sin(args[0])
+    if func == "cos":
+        if len(args) != 1: raise InterpreterError("math.cos(x)")
+        return _math.cos(args[0])
+    if func == "pi":
+        return _math.pi
+    if func == "floor":
+        if len(args) != 1: raise InterpreterError("math.floor(x)")
+        return int(_math.floor(args[0]))
+    if func == "ceil":
+        if len(args) != 1: raise InterpreterError("math.ceil(x)")
+        return int(_math.ceil(args[0]))
+    if func == "log":
+        if len(args) != 1: raise InterpreterError("math.log(x)")
+        return _math.log(args[0])
+    raise InterpreterError(f"math: неизвестная функция '{func}'")
+
+
+def _call_string(func, args):
+    if func == "split":
+        if len(args) < 2: raise InterpreterError("string.split(s, delim)")
+        return args[0].split(args[1])
+    if func == "join":
+        if len(args) < 2: raise InterpreterError("string.join(list, delim)")
+        return args[1].join(str(x) for x in args[0])
+    if func == "upper":
+        if len(args) != 1: raise InterpreterError("string.upper(s)")
+        return str(args[0]).upper()
+    if func == "lower":
+        if len(args) != 1: raise InterpreterError("string.lower(s)")
+        return str(args[0]).lower()
+    if func == "contains":
+        if len(args) != 2: raise InterpreterError("string.contains(s, sub)")
+        return 1 if str(args[1]) in str(args[0]) else 0
+    if func == "replace":
+        if len(args) != 3: raise InterpreterError("string.replace(s, old, new)")
+        return str(args[0]).replace(str(args[1]), str(args[2]))
+    if func == "len":
+        if len(args) != 1: raise InterpreterError("string.len(s)")
+        return len(str(args[0]))
+    if func == "at":
+        if len(args) != 2: raise InterpreterError("string.at(s, i)")
+        return str(args[0])[args[1]]
+    if func == "substr":
+        if len(args) < 2: raise InterpreterError("string.substr(s, start[, end])")
+        s = str(args[0])
+        start = args[1]
+        end = args[2] if len(args) > 2 else len(s)
+        return s[start:end]
+    raise InterpreterError(f"string: неизвестная функция '{func}'")
+
+
+def _call_os(func, args):
+    if func == "listdir":
+        if len(args) != 1: raise InterpreterError("os.listdir(path)")
+        return os.listdir(args[0])
+    if func == "getcwd":
+        return os.getcwd()
+    if func == "path_exists":
+        if len(args) != 1: raise InterpreterError("os.path_exists(path)")
+        return 1 if os.path.exists(args[0]) else 0
+    if func == "mkdir":
+        if len(args) != 1: raise InterpreterError("os.mkdir(path)")
+        os.makedirs(args[0], exist_ok=True)
+        return args[0]
+    raise InterpreterError(f"os: неизвестная функция '{func}'")
+
+
 class InterpreterError(Exception):
     pass
+
+
+class EvalError(Exception):
+    """Ошибка выполнения EVOL-программы (ловится try/catch)."""
+    def __init__(self, message, var_name=None):
+        super().__init__(message)
+        self.var_name = var_name
 
 
 class ChoiceFail(Exception):
@@ -218,6 +309,8 @@ class ChoiceFail(Exception):
 def evaluate(expr, sigma):
     t = type(expr)
     if t is Int:
+        return expr.value
+    if t is Float:
         return expr.value
     if t is Str:
         return expr.value
@@ -382,6 +475,16 @@ def eval_eff(node, sigma):
             spawned += s2
             retracted |= r2
         return cur, emits, spawned, retracted
+    if t is TryCatch:
+        try:
+            return eval_eff(node.body, sigma)
+        except (InterpreterError, EvalError) as e:
+            local = dict(sigma)
+            local[node.catch_var] = str(e)
+            return eval_eff(node.catch_body, local)
+    if t is Raise:
+        msg = evaluate(node.message, sigma)
+        raise EvalError(str(msg))
     if t is Call:
         evaluate(node, sigma)
         return sigma, [], [], set()

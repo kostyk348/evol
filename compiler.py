@@ -13,9 +13,9 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ast_nodes import (
-    Int, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
+    Int, Float, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
     Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, ForEach,
-    Rule, Lib, Import,
+    TryCatch, Raise, Rule, Lib, Import,
 )
 
 
@@ -167,6 +167,18 @@ class Compiler:
             self._indent += 1
             self._compile_eff(eff.body)
             self._indent -= 1
+        elif t is TryCatch:
+            self._emit("    try:")
+            self._indent += 1
+            self._compile_eff(eff.body)
+            self._indent -= 1
+            self._emit(f"    except Exception as {eff.catch_var}:")
+            self._indent += 1
+            self._compile_eff(eff.catch_body)
+            self._indent -= 1
+        elif t is Raise:
+            msg = self._compile_expr(eff.message)
+            self._emit(f"    raise Exception({msg})")
         elif t is Par:
             self._compile_eff(eff.a)
             self._compile_eff(eff.b)
@@ -185,6 +197,8 @@ class Compiler:
     def _compile_expr(self, expr):
         t = type(expr)
         if t is Int:
+            return str(expr.value)
+        if t is Float:
             return str(expr.value)
         if t is Str:
             return repr(expr.value)

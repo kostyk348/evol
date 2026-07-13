@@ -12,7 +12,7 @@ class LexError(Exception):
 KEYWORDS = {
     "lib", "rule", "when", "spawn", "retract", "emit", "if", "then", "else",
     "seq", "par", "choice", "loop", "fun", "and", "or", "not", "forall",
-    "import",
+    "import", "try", "catch", "raise",
 }
 
 # Двусимвольные операторы
@@ -90,14 +90,22 @@ def tokenize(src, filename="<input>"):
             tokens.append(Token("STR", "".join(buf), start_line, start_col))
             continue
 
-        # число
+        # число (INT или FLOAT)
         if c.isdigit():
             buf = [c]
             advance()
             while i < n and src[i].isdigit():
                 buf.append(src[i])
                 advance()
-            tokens.append(Token("INT", "".join(buf), start_line, start_col))
+            if i < n and src[i] == "." and i + 1 < n and src[i + 1].isdigit():
+                buf.append(src[i])
+                advance()
+                while i < n and src[i].isdigit():
+                    buf.append(src[i])
+                    advance()
+                tokens.append(Token("FLOAT", "".join(buf), start_line, start_col))
+            else:
+                tokens.append(Token("INT", "".join(buf), start_line, start_col))
             continue
 
         # идентификатор / ключевое слово

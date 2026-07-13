@@ -14,9 +14,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ast_nodes import (
-    Int, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
+    Int, Float, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
     Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, ForEach,
-    Rule, Lib, Import,
+    TryCatch, Raise, Rule, Lib, Import,
 )
 
 from parser import parse
@@ -164,6 +164,8 @@ class TypeChecker:
         t = type(expr)
         if t is Int:
             return TINT
+        if t is Float:
+            return TINT  # float treated as numeric
         if t is Str:
             return TSTR
         if t is Name:
@@ -328,6 +330,10 @@ def _scan_eff(node, acc):
         _scan_eff(node.body, acc)
     elif t is If:
         _scan_eff(node.then_branch, acc); _scan_eff(node.else_branch, acc)
+    elif t is TryCatch:
+        _scan_eff(node.body, acc); _scan_eff(node.catch_body, acc)
+    elif t is Raise:
+        pass
 
 
 def collect_facts(decls, acc=None):

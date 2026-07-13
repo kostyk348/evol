@@ -148,6 +148,12 @@ class Parser:
             return A.Retract(name=name, line=t.line, col=t.col)
         if t.kind == "FORALL":
             return self._parse_forall()
+        if t.kind == "TRY":
+            return self._parse_try_catch()
+        if t.kind == "RAISE":
+            self.next()
+            msg = self.parse_expr()
+            return A.Raise(message=msg, line=t.line, col=t.col)
         # assign: NAME ":="
         if t.kind == "NAME" and self._peek2_is_assign():
             self.next()
@@ -202,6 +208,29 @@ class Parser:
         self.expect("OP", "}")
         body = A.Block(stmts=stmts, line=t.line, col=t.col)
         return A.ForEach(var=var, coll=coll, body=body, line=t.line, col=t.col)
+
+    def _parse_try_catch(self):
+        t = self.next()  # TRY
+        self.expect("OP", "{")
+        stmts = []
+        while not self.at("OP", "}"):
+            if self.at("EOF"):
+                raise ParseError("незакрытый try (нет '}}')")
+            stmts.append(self.parse_eff())
+        self.expect("OP", "}")
+        self.expect("CATCH")
+        catch_var = self.expect_name()
+        self.expect("OP", "{")
+        catch_stmts = []
+        while not self.at("OP", "}"):
+            if self.at("EOF"):
+                raise ParseError("незакрытый catch (нет '}}')")
+            catch_stmts.append(self.parse_eff())
+        self.expect("OP", "}")
+        body = A.Block(stmts=stmts, line=t.line, col=t.col)
+        catch_body = A.Block(stmts=catch_stmts, line=t.line, col=t.col)
+        return A.TryCatch(body=body, catch_var=catch_var, catch_body=catch_body,
+                          line=t.line, col=t.col)
 
     def parse_block(self):
         t = self.expect("OP", "{")
@@ -302,6 +331,9 @@ class Parser:
         if t.kind == "INT":
             self.next()
             return A.Int(value=int(t.text), line=t.line, col=t.col)
+        if t.kind == "FLOAT":
+            self.next()
+            return A.Float(value=float(t.text), line=t.line, col=t.col)
         if t.kind == "STR":
             self.next()
             return A.Str(value=t.text, line=t.line, col=t.col)

@@ -78,10 +78,20 @@ class ForEach(Node):
     _fields = ("var", "coll", "body")  # body: eff, выполняется для каждого elem coll, связывая var
 
 
+class TryCatch(Node):
+    _fields = ("body", "catch_var", "catch_body")  # body: eff, catch_var: str, catch_body: eff
+
+
+class Raise(Node):
+    _fields = ("message",)  # message: expr (строка ошибки)
+
+
 # --- expressions (чистые значения) ---
 class Int(Node):
     _fields = ("value",)
 
+class Float(Node):
+    _fields = ("value",)
 
 class Str(Node):
     _fields = ("value",)
