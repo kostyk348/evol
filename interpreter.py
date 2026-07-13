@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ast_nodes import (
     Int, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
     Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, ForEach,
-    Rule, Lib,
+    Rule, Lib, Import,
 )
 from parser import parse
 
@@ -197,7 +197,7 @@ def eval_eff(node, sigma):
     if t is Emit:
         return sigma, [evaluate(node.value, sigma)], [], set()
     if t is Spawn:
-        return sigma, [], [node.name], set()
+        return sigma, [], [node], set()
     if t is Retract:
         return sigma, [], [], {node.name}
     if t is If:
@@ -283,22 +283,44 @@ def match(pat, msg):
     return None
 
 
-def collect_rules(decls):
-    rules = {}
+def collect_rule_table(decls, table=None, base_lib=""):
+    """Возвращает {(libname, rulename): RuleNode}. import "файл" подгружает внешний модуль."""
+    if table is None:
+        table = {}
     for d in decls:
         if isinstance(d, Rule):
-            rules[d.name] = d
+            table[(base_lib, d.name)] = d
         elif isinstance(d, Lib):
-            rules.update(collect_rules(d.decls))
-    return rules
+            for sub in d.decls:
+                if isinstance(sub, Rule):
+                    table[(d.name, sub.name)] = sub
+        elif isinstance(d, Import) and d.is_path:
+            path = d.target
+            with open(path, encoding="utf-8") as f:
+                sub_ast = parse(f.read(), path)
+            stem = os.path.splitext(os.path.basename(path))[0]
+            collect_rule_table(sub_ast, table, base_lib=stem)
+    return table
+
+
+def resolve_spawn(table, sp):
+    """Разрешает spawn(lib, name) в RuleNode. Квалифицированный — точно; неквалифицированный — default lib, иначе любой."""
+    if sp.lib is not None:
+        return table.get((sp.lib, sp.name))
+    if ("", sp.name) in table:
+        return table[("", sp.name)]
+    for (lb, nm), node in table.items():
+        if nm == sp.name:
+            return node
+    return None
 
 
 def run(ast, bootstrap, max_steps=100000):
-    prog_rules = collect_rules(ast)
+    table = collect_rule_table(ast)
     q = []
     rid = 0
-    for name, node in prog_rules.items():
-        q.append({"id": rid, "name": name, "prio": 0,
+    for (lib, name), node in table.items():
+        q.append({"id": rid, "name": name, "lib": lib, "prio": 0,
                   "pat": node.pat, "eff": node.body})
         rid += 1
     sigma = {}
@@ -324,10 +346,11 @@ def run(ast, bootstrap, max_steps=100000):
         for v in emits:
             queue.append(v)
             emitted_log.append(v)
-        for nm in spawned:
-            if nm in prog_rules:
-                q.append({"id": rid, "name": nm, "prio": 0,
-                          "pat": prog_rules[nm].pat, "eff": prog_rules[nm].body})
+        for sp in spawned:
+            node = resolve_spawn(table, sp)
+            if node is not None:
+                q.append({"id": rid, "name": sp.name, "lib": sp.lib, "prio": 0,
+                          "pat": node.pat, "eff": node.body})
                 rid += 1
         if retracted:
             q = [x for x in q if x["name"] not in retracted]

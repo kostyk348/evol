@@ -16,8 +16,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ast_nodes import (
     Int, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
     Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, ForEach,
-    Rule, Lib,
+    Rule, Lib, Import,
 )
+
+from parser import parse
 
 
 class Type:
@@ -124,7 +126,29 @@ class TypeChecker:
     def err(self, node, msg):
         self.errors.append(f"{node.line}:{node.col} {msg}")
 
+    def _collect_names(self, decls, qualified, unqualified, lib=""):
+        for d in decls:
+            if isinstance(d, Rule):
+                unqualified.add(d.name)
+                qualified.add((lib, d.name))
+            elif isinstance(d, Lib):
+                for sub in d.decls:
+                    if isinstance(sub, Rule):
+                        unqualified.add(sub.name)
+                        qualified.add((d.name, sub.name))
+            elif isinstance(d, Import) and d.is_path:
+                try:
+                    with open(d.target, encoding="utf-8") as f:
+                        sub_ast = parse(f.read(), d.target)
+                    stem = os.path.splitext(os.path.basename(d.target))[0]
+                    self._collect_names(sub_ast, qualified, unqualified, lib=stem)
+                except Exception:
+                    pass
+
     def check_program(self, decls):
+        self.qualified = set()
+        self.unqualified = set()
+        self._collect_names(decls, self.qualified, self.unqualified)
         for d in decls:
             if isinstance(d, Rule):
                 self.check_rule(d)
@@ -240,7 +264,10 @@ class TypeChecker:
         elif t is Emit:
             self.infer(node.value, env)
         elif t is Spawn:
-            if node.name not in self.rule_names:
+            if node.lib is not None:
+                if (node.lib, node.name) not in getattr(self, "qualified", set()):
+                    self.err(node, f"spawn несуществующего правила '{node.lib}.{node.name}'")
+            elif node.name not in getattr(self, "unqualified", self.rule_names):
                 self.err(node, f"spawn несуществующего правила '{node.name}'")
         elif t is Retract:
             if node.name not in self.rule_names:
@@ -278,14 +305,40 @@ class TypeChecker:
 
 # ---------- Доказательщик свойств (метрика 5) ----------
 
+def _scan_eff(node, acc):
+    """Собирает spawn/retract (с учётом квалификации lib) из тела правила."""
+    t = type(node)
+    if t is Spawn:
+        key = (node.lib if node.lib else "", node.name)
+        acc["spawns"].add(key)
+    elif t is Retract:
+        acc["retracts"].add(node.name)
+    elif t is Block:
+        for s in node.stmts:
+            _scan_eff(s, acc)
+    elif t is Seq:
+        _scan_eff(node.a, acc); _scan_eff(node.b, acc)
+    elif t is Par:
+        _scan_eff(node.a, acc); _scan_eff(node.b, acc)
+    elif t is Choice:
+        _scan_eff(node.a, acc); _scan_eff(node.b, acc)
+    elif t is Loop:
+        _scan_eff(node.body, acc)
+    elif t is ForEach:
+        _scan_eff(node.body, acc)
+    elif t is If:
+        _scan_eff(node.then_branch, acc); _scan_eff(node.else_branch, acc)
+
+
 def collect_facts(decls, acc=None):
     if acc is None:
-        acc = {"rules": set(), "when_tags": set(), "emit_tags": set(),
-               "spawns": set(), "retracts": set(), "edges": {}, "tag_count": {},
-               "rule_tag": {}}
+        acc = {"rules": set(), "qualified": set(), "when_tags": set(),
+               "emit_tags": set(), "spawns": set(), "retracts": set(),
+               "edges": {}, "tag_count": {}, "rule_tag": {}}
     for d in decls:
         if isinstance(d, Rule):
             acc["rules"].add(d.name)
+            acc["qualified"].add(("", d.name))
             tag = pattern_tag(d.pat)
             if tag:
                 acc["when_tags"].add(tag)
@@ -295,9 +348,30 @@ def collect_facts(decls, acc=None):
             for tg in etags:
                 acc["emit_tags"].add(tg)
             acc.setdefault("edges", {})[d.name] = etags
+            _scan_eff(d.body, acc)
         elif isinstance(d, Lib):
-            collect_facts(d.decls, acc)
+            for sub in d.decls:
+                if isinstance(sub, Rule):
+                    acc["rules"].add(sub.name)
+                    acc["qualified"].add((d.name, sub.name))
+                    tag = pattern_tag(sub.pat)
+                    if tag:
+                        acc["when_tags"].add(tag)
+                        acc["tag_count"][tag] = acc["tag_count"].get(tag, 0) + 1
+                        acc["rule_tag"][(d.name, sub.name)] = tag
+                    etags = emitted_tags(sub.body)
+                    for tg in etags:
+                        acc["emit_tags"].add(tg)
+                    acc.setdefault("edges", {})[(d.name, sub.name)] = etags
+                    _scan_eff(sub.body, acc)
     return acc
+
+
+def _spawn_resolves(key, facts):
+    lib, name = key
+    if lib:
+        return (lib, name) in facts["qualified"]
+    return name in facts["rules"]
 
 
 def pattern_tag(pat):
@@ -344,7 +418,7 @@ def proven_properties(decls):
     proven, failed = [], []
 
     # P1: все spawn указывают на объявленные правила
-    if all(s in facts["rules"] for s in facts["spawns"]):
+    if all(_spawn_resolves(s, facts) for s in facts["spawns"]):
         proven.append("все spawn -> объявленные правила")
     else:
         failed.append("spawn несуществующего правила")
@@ -379,7 +453,7 @@ def proven_properties(decls):
                 for rn in tag_to_rules.get(tg, []):
                     if rn not in reachable:
                         stack.append(rn)
-        dead = facts["rules"] - reachable
+        dead = set(facts["rule_tag"].keys()) - reachable
         if not dead:
             proven.append("все правила достижимы из boot (нет dead-кода)")
         else:

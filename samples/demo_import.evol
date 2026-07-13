@@ -1,0 +1,12 @@
+lib counter {
+  rule tick = when (go) => {
+    emit (ticked)
+  }
+}
+
+lib app {
+  rule start = when boot => {
+    spawn counter.tick
+    emit (go)
+  }
+}

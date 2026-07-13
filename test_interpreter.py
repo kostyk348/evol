@@ -66,6 +66,12 @@ def main():
                  f"y={r['store'].get('y')}"):
         fails.append("forall y")
 
+    # 6) import между lib + квалифицированный spawn
+    r = run_file(os.path.join(SAMPLES, "demo_import.evol"), ["boot"])
+    ticked = any(hasattr(m, "name") and m.name == "ticked" for m in r["emitted"])
+    if not check("import+spawn lib.rule: 'ticked' в emitted", ticked):
+        fails.append("import qualified spawn")
+
     print("\n" + "=" * 50)
     if fails:
         print(f"ПРОВАЛ: {fails}")

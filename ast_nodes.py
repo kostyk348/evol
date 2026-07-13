@@ -59,11 +59,15 @@ class Emit(Node):
 
 
 class Spawn(Node):
-    _fields = ("name",)
+    _fields = ("lib", "name")  # lib=None => неквалифицированный spawn
 
 
 class Retract(Node):
     _fields = ("name",)
+
+
+class Import(Node):
+    _fields = ("target", "is_path")  # import имени либы или "файла.evol"
 
 
 class If(Node):

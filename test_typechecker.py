@@ -46,6 +46,12 @@ def main():
     if not check("bad-spawn: отклонена", len(errs) > 0, "ошибок нет"):
         fails.append("tc_bad_spawn accepted")
 
+    # 3b) неизвестный квалифицированный spawn отклоняется
+    ast = load("tc_bad_spawn_qual.evol")
+    errs = typecheck(ast)
+    if not check("bad-spawn-qual: отклонена", len(errs) > 0, "ошибок нет"):
+        fails.append("tc_bad_spawn_qual accepted")
+
     # 4) метрика 5: хорошая программа доказывает >=6 свойств (отлично)
     ast = load("tc_ok.evol")
     ok_proven, ok_failed = proven_properties(ast)

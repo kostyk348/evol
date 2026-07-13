@@ -66,7 +66,9 @@ class Parser:
             return self.parse_lib()
         if t.kind == "RULE":
             return self.parse_rule()
-        raise ParseError(f"ожидался decl (lib/rule), получен {t.kind} {t.text!r} в {t.line}:{t.col}")
+        if t.kind == "IMPORT":
+            return self.parse_import()
+        raise ParseError(f"ожидался decl (lib/rule/import), получен {t.kind} {t.text!r} в {t.line}:{t.col}")
 
     def parse_lib(self):
         t = self.expect("LIB")
@@ -89,6 +91,16 @@ class Parser:
         self.expect("OP", "=>")
         body = self.parse_eff()
         return A.Rule(name=name, pat=pat, body=body, line=t.line, col=t.col)
+
+    def parse_import(self):
+        t = self.next()  # IMPORT
+        if self.at("STR"):
+            target = self.next().text
+            self.expect("OP", ";")
+            return A.Import(target=target, is_path=True, line=t.line, col=t.col)
+        name = self.expect_name()
+        self.expect("OP", ";")
+        return A.Import(target=name, is_path=False, line=t.line, col=t.col)
 
     # --- effects ---
     def parse_eff(self):
@@ -123,8 +135,13 @@ class Parser:
             return A.Emit(value=value, line=t.line, col=t.col)
         if t.kind == "SPAWN":
             self.next()
+            if self.at("NAME") and self.peek2_is_dot():
+                lib = self.expect_name()
+                self.expect("OP", ".")
+                name = self.expect_name()
+                return A.Spawn(lib=lib, name=name, line=t.line, col=t.col)
             name = self.expect_name()
-            return A.Spawn(name=name, line=t.line, col=t.col)
+            return A.Spawn(lib=None, name=name, line=t.line, col=t.col)
         if t.kind == "RETRACT":
             self.next()
             name = self.expect_name()
@@ -147,6 +164,12 @@ class Parser:
             return False
         nxt = self.toks[self.pos + 1]
         return nxt.kind == "OP" and nxt.text == ":="
+
+    def peek2_is_dot(self):
+        if self.pos + 1 >= len(self.toks):
+            return False
+        nxt = self.toks[self.pos + 1]
+        return nxt.kind == "OP" and nxt.text == "."
 
     def _parse_bin_eff(self, kw, cls):
         t = self.next()

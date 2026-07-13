@@ -12,6 +12,7 @@ class LexError(Exception):
 KEYWORDS = {
     "lib", "rule", "when", "spawn", "retract", "emit", "if", "then", "else",
     "seq", "par", "choice", "loop", "fun", "and", "or", "not", "forall",
+    "import",
 }
 
 # Двусимвольные операторы
