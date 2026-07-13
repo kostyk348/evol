@@ -34,10 +34,23 @@ def rust_dispatcher(n):
 
 
 def rust_statemachine(n):
+    """N-стояний FSM: dict с N ветвями match."""
+    arms = []
+    for i in range(n):
+        nxt = f"s_{i+1}" if i + 1 < n else "done";
+        arms.append(f'        "{i}" => {{ x = {i}; if x < {n} {{ queue.push(("{nxt}",)); }} else {{ queue.push(("halt",)); }} }}')
+    body = "\n".join(arms)
     return (
         "fn sm(n: i64) {\n"
-        "    let mut x: i64 = 0;\n"
-        f"    while x < {n} {{ x = x + 1; }}\n"
+        "    let mut queue: Vec<(&str, i64)> = Vec::new();\n"
+        "    queue.push((\"s_0\", 0));\n"
+        "    while !queue.is_empty() {\n"
+        "        let ev = queue.remove(0);\n"
+        f"        match ev.0 {{\n"
+        f"{body}\n"
+        "            _ => {}\n"
+        "        }\n"
+        "    }\n"
         "}\n"
     )
 

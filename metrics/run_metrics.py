@@ -73,7 +73,11 @@ def gen_dispatcher(n):
 
 
 def gen_statemachine(n):
-    """Задача 2: N состояний как один параметрический rule (состояние = данные)."""
+    """Задача 2: N состояний как один параметрический rule (состояние = данные).
+
+    Python baseline: реальный N-состояний FSM (dict + N ветвей if/elif),
+    чтобы честно мерить компрессию относительно явного описания каждого состояния.
+    """
     evol = [
         "lib sm {",
         "  rule init = when boot => {",
@@ -84,13 +88,25 @@ def gen_statemachine(n):
         "  }",
         "}",
     ]
-    py = [
-        "def sm(n):",
-        "    x = 0",
-        f"    while x < {n}:",
-        "        x = x + 1",
-    ]
-    return "\n".join(evol), "\n".join(py)
+    # Реальный N-остояний FSM: init + N обработчиков состояний
+    py_lines = ["", "def init():", "    queue.append(('s_0',))"]
+    arms = []
+    for i in range(n):
+        nxt = f"s_{i+1}" if i + 1 < n else "done"
+        py_lines += [f"def st_{i}():",
+                     f"    x_{i} = {i}",
+                     f"    if x_{i} < {n}:",
+                     f"        queue.append(('{nxt}',))",
+                     f"    else:",
+                     f"        queue.append(('halt',))"]
+        kw = "if" if i == 0 else "elif"
+        arms += [f"        {kw} ev[0] == 's_{i}':", f"            st_{i}()"]
+    py_lines += ["", "def sm():", "    init()",
+                 "    while queue:", "        ev = queue.pop(0)"] + arms + \
+                ["        else:", "            pass"]
+    # Убираем пустую строку-заглушку в начале
+    py = "\n".join(py_lines[1:])
+    return "\n".join(evol), py
 
 
 def gen_pipeline(n):
