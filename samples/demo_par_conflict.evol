@@ -1,0 +1,5 @@
+lib demo {
+  rule go = when boot => {
+    par( x := 1, x := 2 )
+  }
+}

@@ -1,0 +1,6 @@
+lib t {
+  rule boot = when boot => {
+    x := 1 + "строка"
+    emit (a)
+  }
+}

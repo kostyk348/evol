@@ -1,0 +1,14 @@
+lib statemachine {
+  rule step = when (event) => {
+    if event.kind == (login) then {
+      s := (authenticated)
+      emit (ok)
+    } else {
+      s := (guest)
+      emit (denied)
+    }
+  }
+  rule guarded = when (go) => {
+    if s == (authenticated) then emit (advance) else emit (blocked)
+  }
+}

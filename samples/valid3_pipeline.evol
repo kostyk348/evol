@@ -1,0 +1,12 @@
+lib pipeline {
+  rule run = when (start) => {
+    par(
+      seq(emit(stageA), emit(stageB)),
+      seq(emit(stageC), emit(stageD))
+    )
+    loop(count < 10, {
+      count := count + 1
+      emit (tick)
+    })
+  }
+}

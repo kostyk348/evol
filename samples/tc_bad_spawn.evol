@@ -1,0 +1,6 @@
+lib t {
+  rule boot = when boot => {
+    spawn notDeclared
+    emit (a)
+  }
+}

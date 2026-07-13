@@ -1,0 +1,10 @@
+lib di {
+  rule wire = when (boot) => {
+    services := [svcA, svcB, svcC, svcD, svcE]
+    deps := [(svcB, svcA), (svcC, svcA), (svcD, svcB), (svcE, svcC)]
+    choice(
+      emit (wire_ok),
+      emit (cycle_detected)
+    )
+  }
+}

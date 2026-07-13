@@ -1,0 +1,15 @@
+lib demo {
+  rule start = when boot => {
+    n := 0
+    emit (run)
+  }
+  rule step = when run => {
+    if n < 5 then {
+      emit (tick)
+      n := n + 1
+      emit (run)
+    } else {
+      emit (done)
+    }
+  }
+}

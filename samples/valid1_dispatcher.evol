@@ -1,0 +1,15 @@
+lib dispatcher {
+  rule start = when (boot) => {
+    spawn handlerA
+    spawn handlerB
+    emit (tick)
+  }
+  rule handlerA = when (tick) => {
+    x := 1
+    emit (a_done)
+  }
+  rule handlerB = when (a_done) => {
+    y := x + 1
+    emit (b_done)
+  }
+}

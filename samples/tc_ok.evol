@@ -1,0 +1,5 @@
+lib t {
+  rule boot = when boot => { emit (a) }
+  rule a = when a => { emit (b) }
+  rule b = when b => { emit (a) }
+}

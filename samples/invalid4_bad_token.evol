@@ -1,0 +1,5 @@
+lib broken {
+  rule start = when (boot) => {
+    emit @ (tick)
+  }
+}

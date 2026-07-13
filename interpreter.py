@@ -1,0 +1,311 @@
+"""EVOL интерпретатор (Этап 3). AST-walking, прямая реализация δ(S) -> S'.
+
+Абстрактная машина S = (Σ, Μ, Q):
+  Σ  — store:       name -> value
+  Μ  — message queue: упорядоченный список значений (сообщений)
+  Q  — установленные правила: {id, name, prio, pat, eff}
+
+Шаг δ:
+  1. если Μ пуст -> останов.
+  2. m = head(Μ); остальное -> Μ'.
+  3. среди Q взять правила, чей pat совпадает с m (match); выбрать max prio.
+  4. нет совпадений -> m отброшено.
+  5. иначе вычислить eff в Σ + bindings; применить мутации Σ, emit->Μ',
+     spawn->Q, retract->Q.
+"""
+
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from ast_nodes import (
+    Int, Str, Name, List, Tuple, Fun, BinOp, UnaryOp, Call, GetAttr, Index,
+    Block, Seq, Par, Choice, Loop, Assign, Emit, Spawn, Retract, If, Rule, Lib,
+)
+from parser import parse
+
+
+class Symbol:
+    __slots__ = ("name",)
+
+    def __init__(self, name):
+        self.name = name
+
+    def __eq__(self, other):
+        return isinstance(other, Symbol) and other.name == self.name
+
+    def __hash__(self):
+        return hash(("Symbol", self.name))
+
+    def __repr__(self):
+        return f"^{self.name}"
+
+
+def is_truthy(v):
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int):
+        return v != 0
+    if isinstance(v, str):
+        return len(v) > 0
+    if isinstance(v, list):
+        return len(v) > 0
+    if isinstance(v, tuple):
+        return len(v) > 0
+    if isinstance(v, Symbol):
+        return True
+    return v is not None
+
+
+def make_value(v):
+    """Поднимает Python-значения к EVOL-значениям (для bootstrap-сообщений)."""
+    if isinstance(v, str) and not v.startswith("^"):
+        return Symbol(v)
+    return v
+
+
+class InterpreterError(Exception):
+    pass
+
+
+class ChoiceFail(Exception):
+    pass
+
+
+def evaluate(expr, sigma):
+    t = type(expr)
+    if t is Int:
+        return expr.value
+    if t is Str:
+        return expr.value
+    if t is Name:
+        if expr.value in sigma:
+            return sigma[expr.value]
+        return Symbol(expr.value)
+    if t is List:
+        return [evaluate(i, sigma) for i in expr.items]
+    if t is Tuple:
+        return tuple(evaluate(i, sigma) for i in expr.items)
+    if t is Fun:
+        return ("closure", expr.params, expr.body, dict(sigma))
+    if t is UnaryOp:
+        op = expr.op
+        val = evaluate(expr.operand, sigma)
+        if op == "-":
+            return -val
+        if op == "not":
+            return not is_truthy(val)
+        raise InterpreterError(f"неизвестный унарный оператор {op}")
+    if t is BinOp:
+        return eval_binop(expr.op, evaluate(expr.left, sigma), evaluate(expr.right, sigma))
+    if t is GetAttr:
+        obj = evaluate(expr.obj, sigma)
+        if expr.attr == "kind":
+            if isinstance(obj, tuple) and len(obj) >= 1:
+                return obj[0]
+            if isinstance(obj, Symbol):
+                return obj
+            raise InterpreterError(f".kind от {obj!r}")
+        raise InterpreterError(f"неизвестный атрибут .{expr.attr}")
+    if t is Index:
+        obj = evaluate(expr.obj, sigma)
+        key = evaluate(expr.key, sigma)
+        if isinstance(obj, (list, tuple)):
+            return obj[key]
+        raise InterpreterError(f"индексация неприменима к {obj!r}")
+    if t is Call:
+        func = evaluate(expr.func, sigma)
+        if isinstance(func, tuple) and func[0] == "closure":
+            params, body, env = func[1], func[2], func[3]
+            args = [evaluate(a, sigma) for a in expr.args]
+            if len(args) != len(params):
+                raise InterpreterError(f"arity mismatch: {len(params)} vs {len(args)}")
+            local = dict(env)
+            local.update(zip(params, args))
+            return evaluate(body, local)
+        raise InterpreterError(f"вызов не-функции: {func!r}")
+    raise InterpreterError(f"неизвестный expr-узел {t}")
+
+
+def eval_binop(op, l, r):
+    if op == "+":
+        return l + r
+    if op == "-":
+        return l - r
+    if op == "*":
+        return l * r
+    if op == "/":
+        if r == 0:
+            raise InterpreterError("деление на 0")
+        return l // r
+    if op == "==":
+        return l == r
+    if op == "!=":
+        return l != r
+    if op == "<":
+        return l < r
+    if op == ">":
+        return l > r
+    if op == "<=":
+        return l <= r
+    if op == ">=":
+        return l >= r
+    if op == "and":
+        return is_truthy(l) and is_truthy(r)
+    if op == "or":
+        return is_truthy(l) or is_truthy(r)
+    raise InterpreterError(f"неизвестный бинарный оператор {op}")
+
+
+def eval_eff(node, sigma):
+    """Возвращает (new_sigma, emits, spawned, retracted)."""
+    t = type(node)
+    if t is Block:
+        cur = sigma
+        emits, spawned, retracted = [], [], set()
+        for stmt in node.stmts:
+            cur, e, s, r = eval_eff(stmt, cur)
+            emits += e
+            spawned += s
+            retracted |= r
+        return cur, emits, spawned, retracted
+    if t is Assign:
+        cur = dict(sigma)
+        cur[node.name] = evaluate(node.value, sigma)
+        return cur, [], [], set()
+    if t is Emit:
+        return sigma, [evaluate(node.value, sigma)], [], set()
+    if t is Spawn:
+        return sigma, [], [node.name], set()
+    if t is Retract:
+        return sigma, [], [], {node.name}
+    if t is If:
+        if is_truthy(evaluate(node.cond, sigma)):
+            return eval_eff(node.then_branch, sigma)
+        return eval_eff(node.else_branch, sigma)
+    if t is Seq:
+        s1, e1, sp1, r1 = eval_eff(node.a, sigma)
+        s2, e2, sp2, r2 = eval_eff(node.b, s1)
+        return s2, e1 + e2, sp1 + sp2, r1 | r2
+    if t is Par:
+        # оба эффекта применяются к одному Σ независимо; конфликт имён -> fail
+        sa, ea, spa, ra = eval_eff(node.a, sigma)
+        sb, eb, spb, rb = eval_eff(node.b, sigma)
+        merged = dict(sigma)
+        for k in set(sa) | set(sb):
+            va, vb = sa.get(k), sb.get(k)
+            if va is not None and vb is not None and va != vb:
+                raise InterpreterError(f"par: конфликт имён '{k}' ({va!r} vs {vb!r})")
+            merged[k] = va if va is not None else vb
+        return merged, ea + eb, spa + spb, ra | rb
+    if t is Choice:
+        try:
+            return eval_eff(node.a, sigma)
+        except ChoiceFail:
+            return eval_eff(node.b, sigma)
+    if t is Loop:
+        cur = sigma
+        emits, spawned, retracted = [], [], set()
+        guard_count = 0
+        while is_truthy(evaluate(node.guard, cur)):
+            guard_count += 1
+            if guard_count > 100000:
+                raise InterpreterError("loop: превышен лимит итераций (возможно, бесконечный цикл)")
+            cur, e, s, r = eval_eff(node.body, cur)
+            emits += e
+            spawned += s
+            retracted |= r
+        return cur, emits, spawned, retracted
+    raise InterpreterError(f"неизвестный eff-узел {t}")
+
+
+def match(pat, msg):
+    """Возвращает dict bindings или None."""
+    if isinstance(pat, Name):
+        tag = pat.value
+        if isinstance(msg, Symbol) and msg.name == tag:
+            return {}
+        return None
+    if isinstance(pat, Tuple):
+        if not pat.items:
+            return None
+        tag_node = pat.items[0]
+        if not isinstance(tag_node, Name):
+            return None
+        tag = tag_node.value
+        if not isinstance(msg, tuple):
+            return None
+        if len(msg) == 0 or not isinstance(msg[0], Symbol) or msg[0].name != tag:
+            return None
+        if len(msg) - 1 != len(pat.items) - 1:
+            return None
+        bindings = {}
+        for i, item in enumerate(pat.items[1:], start=1):
+            if isinstance(item, Name):
+                bindings[item.value] = msg[i]
+        return bindings
+    return None
+
+
+def collect_rules(decls):
+    rules = {}
+    for d in decls:
+        if isinstance(d, Rule):
+            rules[d.name] = d
+        elif isinstance(d, Lib):
+            rules.update(collect_rules(d.decls))
+    return rules
+
+
+def run(ast, bootstrap, max_steps=100000):
+    prog_rules = collect_rules(ast)
+    q = []
+    rid = 0
+    for name, node in prog_rules.items():
+        q.append({"id": rid, "name": name, "prio": 0,
+                  "pat": node.pat, "eff": node.body})
+        rid += 1
+    sigma = {}
+    queue = [make_value(m) for m in bootstrap]
+    steps = 0
+    emitted_log = []
+    while queue and steps < max_steps:
+        steps += 1
+        m = queue.pop(0)
+        cands = []
+        for r in q:
+            b = match(r["pat"], m)
+            if b is not None:
+                cands.append((r, b))
+        if not cands:
+            continue
+        cands.sort(key=lambda rb: rb[0]["prio"], reverse=True)
+        r, bindings = cands[0]
+        local = dict(sigma)
+        local.update(bindings)
+        new_sigma, emits, spawned, retracted = eval_eff(r["eff"], local)
+        sigma = new_sigma
+        for v in emits:
+            queue.append(v)
+            emitted_log.append(v)
+        for nm in spawned:
+            if nm in prog_rules:
+                q.append({"id": rid, "name": nm, "prio": 0,
+                          "pat": prog_rules[nm].pat, "eff": prog_rules[nm].body})
+                rid += 1
+        if retracted:
+            q = [x for x in q if x["name"] not in retracted]
+    return {
+        "steps": steps,
+        "store": sigma,
+        "emitted": emitted_log,
+        "stopped_by_max_steps": steps >= max_steps,
+    }
+
+
+def run_file(path, bootstrap):
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    ast = parse(src, path)
+    return run(ast, bootstrap)
