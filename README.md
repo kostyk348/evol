@@ -1,5 +1,9 @@
 # EVOL — язык переходов состояний (proof-of-concept)
 
+[![Release](https://img.shields.io/github/v/release/kostyk348/evol?sort=semver&color=blue)](https://github.com/kostyk348/evol/releases)
+[![License](https://img.shields.io/badge/license-Apache-2.0-green)](https://github.com/kostyk348/evol/blob/master/LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/kostyk348/evol?branch=master)](https://github.com/kostyk348/evol/commits/master)
+
 Экспериментальный язык, оптимизированный под **скорость эволюции инженерных
 идей** (не под производительность рантайма и не под типобезопасность как таковую).
 Каждая конструкция — это правило перехода абстрактной машины, поэтому семантика
