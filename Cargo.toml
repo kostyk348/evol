@@ -1,0 +1,25 @@
+[package]
+name = "evol"
+version = "0.3.0"
+edition = "2021"
+rust-version = "1.80"
+description = "EVOL — state-transition language (proof-of-concept): lexer, parser, interpreter, typechecker, proven properties, EVOL->Python transpiler"
+license = "Apache-2.0"
+repository = "https://github.com/kostyk348/evol"
+readme = "README.md"
+keywords = ["language", "interpreter", "state-machine", "rules", "dsl"]
+categories = ["compilers"]
+
+[lib]
+name = "evol"
+path = "src/lib.rs"
+
+[[bin]]
+name = "evol"
+path = "src/bin/evol.rs"
+
+[dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1

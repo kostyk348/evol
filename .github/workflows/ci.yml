@@ -1,15 +1,51 @@
 name: CI
+
 on:
   push:
+    branches: [main, master]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: "3.12"
-      - name: Byte-compile all sources
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Smoke: run / check / compile
+        shell: bash
         run: |
-          python -m compileall -q . || (echo 'compileall failed'; exit 1)
+          ./target/release/evol run samples/demo_counter.evol boot | grep "n = 5"
+          ./target/release/evol check samples/tc_ok.evol | grep "ошибок нет"
+          ./target/release/evol compile samples/valid1_dispatcher.evol -o /tmp/valid1.py
+          python3 /tmp/valid1.py

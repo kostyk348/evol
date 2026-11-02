@@ -1,64 +1,67 @@
+<div align="center">
+
 # EVOL — язык переходов состояний (proof-of-concept)
 
-[![Release](https://img.shields.io/github/v/release/kostyk348/evol?sort=semver&color=blue)](https://github.com/kostyk348/evol/releases)
-[![License](https://img.shields.io/badge/license-Apache-2.0-green)](https://github.com/kostyk348/evol/blob/master/LICENSE)
-[![Last commit](https://img.shields.io/github/last-commit/kostyk348/evol?branch=master)](https://github.com/kostyk348/evol/commits/master)
+**Экспериментальный язык, оптимизированный под скорость эволюции инженерных идей:
+каждая конструкция — правило перехода абстрактной машины δ(S) → S′, семантика
+задаётся явно, без «магии».**
 
-Экспериментальный язык, оптимизированный под **скорость эволюции инженерных
-идей** (не под производительность рантайма и не под типобезопасность как таковую).
-Каждая конструкция — это правило перехода абстрактной машины, поэтому семантика
-задаётся явно, без «магии».
+[![Release](https://img.shields.io/github/v/release/kostyk348/evol?sort=semver&color=0ea5e9&label=release)](https://github.com/kostyk348/evol/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/kostyk348/evol/ci.yml?branch=master&label=CI)](https://github.com/kostyk348/evol/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/tests-18%20passing%2C%20golden--verified-22c55e)](#порт-на-rust-v03)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.80%2B-orange)](https://www.rust-lang.org)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 
-Проект реализован по цепочке документов `lang-design-spec` → `lang-implementation-roadmap`
-→ `lang-scaling-corpus` (phases 0–7 roadmap). Статус: **Этапы 1–6 выполнены**.
+</div>
 
 ---
+
+Проект реализован по цепочке документов `lang-design-spec` → `lang-implementation-roadmap`
+→ `lang-scaling-corpus` (phases 0–7 roadmap). Статус: **Этапы 1–6 выполнены**, ядро
+языка перенесено на Rust (v0.3, golden-verified против Python-прототипа).
 
 ## Что реализовано
 
-| Этап | Модуль | Суть |
+| Этап | Модуль (Rust) | Суть |
 |---|---|---|
 | 1 | — (бумага) | EBNF-грамматика + формальная семантика АМ (`δ(S)→S′`) |
-| 2 | `lexer.py`, `ast_nodes.py`, `parser.py` | Лексер + AST + рекурсивный спуск |
-| 3 | `interpreter.py` | AST-walking интерпретатор (`Σ, Μ, Q`) |
-| 4 | `typechecker.py` | Тайпчекер (реально отклоняет ошибки) + доказательщик свойств (M5) |
-| 5 | `metrics/run_metrics.py` | Генератор scaling-корпуса + подсчёт M1–M5 |
-| Опция A | `parser.py`, `interpreter.py` | `forall x in expr` + встроенные `range`, `len` — O(1) токенов по N |
-| Опция B | `metrics/smt_prove.py` | z3-SMT: проверка эксклюзивности + полноты гвардов (M5-SMT) |
-| Опция C | `metrics/option_c.py` | Rust-baseline (генераторы + токен-счётчик) + энтропия M3 |
-| Опция D | `lexer.py`..`interpreter.py` | `import` внешних модулей + квалифицированный `spawn Lib.Rule` |
-| Float | `lexer.py`..`compiler.py` | Тип `FLOAT` (динамический) в лексере/парсере/интерпретере/тийпчекере/компиляторе |
-| Error handling | `parser.py`, `interpreter.py` | `try/catch/raise` — ловит InterpreterError + EvalError |
-| Corpus #2 | `metrics/corpus2.py` | Held-out корпус (6 задач, seeds зафиксированы, без утечки) |
-| Этап 7 | `lexer.py`, `parser.py`, `ast_nodes.py`, `typechecker.py`, `interpreter.py`, `compiler.py` | **Аннотации типов**: статическая проверка (Int/Str/Bool/Float/Sym/List[T]/Top) + опциональная runtime-проверка через `enforce_types=True` |
-| ADT | `ast_nodes.py`, `parser.py`, `interpreter.py`, `typechecker.py` | `type Name = A(x:T) \| B \| C(y:T);` + `match e { A(x) => ..; B => ..; _ => .. }`; конструктор `A(v)` строит тег-кортеж; исчерпывающий match проверяется тайпчекером (M5/P7) |
-| Модули | `interpreter.py`, `parser.py` | `import "file.evol";` / `import name;` — разрешение путей (рядом/ cwd/ samples), поиск циклов; квалифицированный `spawn Lib.Rule` |
-| FFI | `interpreter.py`, `parser.py` | `import py "math": sqrt, sin, pi;` → вызов Python-функций через `py.sqrt(..)` / `py.pi` (sandbox: запрещены `eval/exec/open/...`) |
+| 2 | `src/lexer.rs`, `src/ast.rs`, `src/parser.rs` | Лексер + AST + рекурсивный спуск |
+| 3 | `src/interp.rs`, `src/value.rs` | AST-walking интерпретатор (`Σ, Μ, Q`) |
+| 4 | `src/types.rs` | Тайпчекер (реально отклоняет ошибки) + доказательщик свойств (M5) |
+| Опция A | `parser.rs`, `interp.rs` | `forall x in expr` + встроенные `range`, `len` — O(1) токенов по N |
+| Опция D | `interp.rs` | `import` внешних модулей + квалифицированный `spawn Lib.Rule` |
+| Float | `lexer.rs`..`compiler.rs` | Тип `FLOAT` (динамический) во всём стеке |
+| Error handling | `parser.rs`, `interp.rs` | `try/catch/raise` — ловит InterpreterError + EvalError |
+| Этап 7 | все модули | **Аннотации типов**: статическая проверка (Int/Str/Bool/Float/Sym/List[T]/Top) + опциональная runtime-проверка через `--enforce-types` |
+| ADT | `ast.rs`, `parser.rs`, `interp.rs`, `types.rs` | `type Name = A(x:T) \| B \| …`, конструкторы `Circle(3.0)`, match по тегу |
+| Транспилятор | `src/compiler.rs` | EVOL → Python (тот же вывод, что у прототипа — golden-verified) |
 
----
+## Порт на Rust (v0.3)
 
-## Быстрый старт
+Прототип был на Python 3.10+ (ядро ~2700 строк + REPL/метрики). Ядро языка —
+лексер, парсер, интерпретатор, тайпчекер, транспилятор — перенесено на Rust
+без зависимостей. **Корректность доказана golden-тестами против оригинала**:
+`tests/golden.rs` запускает детерминированный корпус из `samples/` через оба
+интерпретатора и требует побитового совпадения (шаги АМ, store, лог emitted,
+вывод console), плюс ошибки парсера, свойства тайпчекера и вывод транспилятора.
+
+| | Python-прототип | Rust 0.3 |
+|---|---|---|
+| зависимости | Python 3.10+ | Rust 1.80+, ноль crates |
+| тесты | suites (z3-зависимые падали) | 18, все зелёные, golden-verified |
+| FFI `import py` | Python-callables, sandbox | недоступен (нет Python-хоста) — та же ошибка «не зарегистрирован» |
+| `random.*` | Mersenne (CPython) | свой SplitMix64 — тот же контракт (seed → детерминированная последовательность), но числа не совпадают с CPython |
+| REPL / актор-рантайм / метрики | `repl.py`, `runtime_concurrent.py`, `metrics/` | **не портированы** — следующий шаг (см. CHANGELOG) |
+
+Сборка и запуск:
 
 ```bash
-cd evol
-python test_parser.py          # валидное принято, невалидное отклонено
-python test_interpreter.py     # семантика, par, forall, квалифицированный spawn
-python test_typechecker.py     # ошибки типов/spawn/import, M5
-python test_smt.py             # SMT-проверка гвардов (z3)
-python test_option_c.py        # Rust-baseline + M3 энтропия
-python test_stdlib.py        # модули: console, random, file, sim, math, string, os
-python test_repl.py          # REPL: hot reload, checkpoint, time
-python test_new_features.py  # FLOAT, try/catch/raise, math/string/os модули
-python test_types.py         # Этап 7: аннотации типов, статическая + runtime проверка
-python test_lang_features.py # ADT+match, FFI в Python, модули .evol, M5(P7/P8)
-python metrics/run_metrics.py  # полная таблица метрик (6 задач, прогон #1)
-python metrics/corpus2.py      # held-out корпус #2 (6 задач, без утечки)
-python repl.py                 # REPL: интерактивная оболочка
-python compiler.py file.evol   # транспиляция EVOL → Python
+cargo build --release
+evol run samples/demo_counter.evol boot     # исполнить (13 шагов, n=5)
+evol check samples/tc_ok.evol               # тайпчекер + доказанные свойства
+evol compile samples/valid1_dispatcher.evol # EVOL → Python
 ```
-
-Требуется Python 3.10+ (использовался 3.14). Для опции B нужен `z3-solver` (`pip install z3-solver`).
-Остальные зависимости — только стандартная библиотека.
 
 ---
 
@@ -77,6 +80,10 @@ python compiler.py file.evol   # транспиляция EVOL → Python
 `if c then … else …` · `seq(a,b)` · `par(a,b)` (отказ при конфликте имён) ·
 `choice(a,b)` · `loop(guard, body)` · `forall x in expr { … }` · встроенные `range`, `len`, `abs`, `min`, `max`, `str`, `int`, `float`.
 `try { … } catch var { … }` · `raise expr` — ловит InterpreterError + EvalError.
+
+Модули стандартной библиотеки: `console` (print), `random` (int/pick/shuffle),
+`file` (read/write/exists), `sim` (step/set_seed), `math` (sqrt/pow/sin/cos/pi/floor/ceil/log),
+`string` (split/join/upper/lower/contains/replace/len/at/substr), `os` (listdir/getcwd/path_exists/mkdir).
 
 Импорт: `import ModuleName` (из файла `modulename.evol`). Квалифицированный спавн:
 `spawn Lib.Rule` (проверяется тайпчекером, срабатывает из внешнего модуля).
@@ -97,53 +104,11 @@ lib demo {
 
 ---
 
-## Параллельный actor-рантайм (`runtime_concurrent.py`)
-
-Отдельный рантайм поверх того же языка, реализующий **shared-nothing actor-модель**
-с контентной маршрутизацией. Это основная конкурентная ось EVOL против Python
-(GIL, гонки, сложность `asyncio`).
-
-**Модель.** Каждый экземпляр правила = актор со своим локальным `Σ` (mailbox FIFO).
-Сообщение доставляется **всем** акторам, чей паттерн совпадает (pub/sub по контенту) —
-`match()` детерминирован по содержимому. Связь только через сообщения, общего
-мутабельного состояния между акторами нет ⇒ **race-free по построению**,
-логически детерминирован.
-
-**Важное отличие от последовательного интерпретатора.** Это *другая* семантика,
-а не drop-in замена:
-- последовательный `interpreter.run`: одно сообщение → **одно** правило (по приоритету),
-  общий store `Σ`;
-- `runtime_concurrent`: одно сообщение → **все** подходящие акторы; у каждого свой `Σ`.
-
-Поэтому один broadcast может запустить N независимых акторов параллельно, тогда как
-последовательный рантайм запустит ровно одно правило.
-
-**Примитивы.** `spawn Name` создаёт новый актор (без начального сообщения) — свежие
-акторы участвуют в маршрутизации того же шага, поэтому broadcast достигает и их;
-`retract Name` снимает акторов с данным именем. FFI (`py.*`) переиспользуется как есть.
-
-**Скорость (честно).** Для I/O-блокирующих/ожидающих тел (`py.sleep`, file I/O)
-потоки реально параллелятся (GIL отпускается при блокировке). Для чистого CPU упираемся
-в GIL — компиляция в native — следующая ось. См. `smoke_concurrent.py` / `test_concurrent.py`:
-
-```
-[EVOL concurrent] wall=0.082s  agents=22  done=21
-[python naive seq ] wall=0.212s  (N * sleep, без параллелизма)
-[python threads  ] wall=0.012s  (эквивалентная модель на потоках, руками)
-EVOL speedup vs наивный seq: 2.6x
-```
-
-EVOL близок по wall-time к эквивалентным потокам Python (та же механика GIL-release),
-но **выигрыш не в raw-speed, а в модели**: декларативный race-free конкурентный код
-без ручных lock/event/Queue, с детерминированной маршрутизацией.
-
----
-
 ## Статическая типизация (Этап 7)
 
 Аннотации типов **опциональны** и не меняют динамическую семантику исполнения —
-они управляют статическим тайпчекером (`typechecker.py`) и, при желании,
-runtime-проверкой (`run(..., enforce_types=True)`).
+они управляют статическим тайпчекером (`src/types.rs`) и, при желании,
+runtime-проверкой (`evol run --enforce-types`).
 
 Типы: `Int`, `Str`, `Bool`, `Float`, `Sym`, `List[T]`, `Top` (верхний тип).
 Числовая совместимость: `Int <: Float` (целое можно присвоить вещественному).
@@ -173,22 +138,29 @@ lib t {
 - тип результата функции, не совпадающий с `-> T`;
 - несовместимые операнды арифметики/сравнения.
 
-Runtime-проверка (`enforce_types=True`) ловит те же несовпадения во время исполнения
+Runtime-проверка (`--enforce-types`) ловит те же несовпадения во время исполнения
 (включая аннотированные поля сообщений из `match`). По умолчанию выключена — язык
 остаётся динамическим, как и задумано для proof-of-concept.
 
-Транспилятор (`compiler.py`) сохраняет аннотации как комментарии и теперь компилирует
-closure-присваивания (`x := fun (...) => ...`) в тела Python-функций.
+## Доказательщик свойств (M5)
 
-## Результаты метрик
+`evol check` печатает свойства, автоматически доказуемые из одного определения
+программы (P1–P8): валидность spawn/retract, типобезопасность, достижимость всех
+правил из `boot` (нет dead-кода), покрытие emit-тегов обработчиками, детерминизм
+выбора правила (нет конфликта when-тегов), исчерпывающий match по ADT, арность
+ADT-конструкторов.
+
+## Результаты метрик (прогоны Python-прототипа)
+
+> Метрики M1–M5 и corpus #2 измерены на Python-прототипе (`metrics/`, не портирован).
+> Языковая семантика не менялась (golden-verified), поэтому результаты остаются
+> релевантными для грамматики; переномеровка рантайма их не касается.
 
 ### Прогон #1 (scaling-корпус, с утечкой)
 
 > Честность метрик (см. оговорку #2): baseline Python бывает двух видов.
-> **naive** — явное развёртывание N веток dispatch (как писал бы студент на экзамене);
-> **idiomatic** — `dict`/функция-диспетчер за O(1) токенов (как пишет питонист на практике).
-> M1 против naive занижает Python и завышает EVOL — это меряет «glue-рост», а НЕ
-> выразительность. **M1_fair** (против idiomatic) — честное сравнение.
+> **naive** — явное развёртывание N веток dispatch; **idiomatic** — `dict`/функция-диспетчер
+> за O(1) токенов. M1 против naive занижает Python — смотреть **M1_fair**.
 
 | Метрика | Зона | Сырое число | Форма M(N) |
 |---|---|---|---|
@@ -198,34 +170,23 @@ closure-присваивания (`x := fun (...) => ...`) в тела Python-ф
 | M2 рекомбинация | отлично | 100% пар компонуются | плоская |
 | M3 энтропия | терпимо/хорошо | ratio=0.70–0.80 к Python | плоская |
 | M4 сем. компрессия | стабильно | 2–17 токенов/шаг АМ | плоская |
-| M5 стат. глубина вывода (УТП) | хорошо | 6–8 свойств/прогон: детерминизм тегов, достижимость из boot, покрытие emit, валидность spawn/retract, типобезопасность, исчерпывающий match по ADT, арность конструкторов | плоская |
+| M5 стат. глубина вывода (УТП) | хорошо | 6–8 свойств/прогон | плоская |
 | M5-SMT (z3) | отлично | 0–2 по задачам | н/д |
 
-\* M1 против naive завышен искусственно (см. оговорку #2) — не читать как «EVOL в 5–9 раз компактнее Python».
+\* M1 против naive завышен искусственно (оговорка #2).
 
 ### Прогон #2 (held-out corpus, без утечки)
 
 Seeds зафиксированы ДО замера: `20260713-1`..`20260713-5`. Грамматика LOCKED.
 
-| Задача | N=10 M1_naive | N=100 M1_naive | N=1000 M1_naive | N=10000 M1_naive | **M1_fair@10/100/1000/10000** | M2 | M3 | M5 | M5-SMT |
-|--------|---------------|----------------|-----------------|------------------|-------------------------------|-----|-----|-----|--------|
-| dispatcher (DAG) | 0.324 | 0.041 | 0.004 | 0.000 | **0.94 / 0.94 / 0.94 / 0.94** | 100% | 0.682 | 3 | 2 |
-| FSM (2 shared vars) | 0.109 | 0.012 | 0.001 | — | **0.66 / 0.66 / 0.66 / —** | 100% | 0.800 | 4 | 2 |
-| pipeline (parallel) | 0.182 | 0.021 | 0.002 | — | **0.66 / 0.66 / 0.66 / —** | 100% | 0.706 | 4 | 2 |
-| **ratelimiter** (NEW) | 0.277 | 0.030 | 0.003 | — | **0.67 / 0.67 / 0.67 / —** | 100% | 0.819 | 4 | 3 |
-| **cache** (NEW) | 0.339 | 0.040 | 0.004 | — | **0.62 / 0.62 / 0.62 / —** | 100% | 0.666 | 4 | 2 |
-| **httprouter** (control) | 0.231 | — | — | — | **0.94** (фикс. 50) | 100% | — | 4 | 2 |
-
-Форма M1_naive(N): монотонно ↓ (artifact развёртывания Python, НЕ заслуга EVOL).
-Форма **M1_fair(N): плоская** (baseline O(1) токенов в N) — значения идентичны для
-всех N в каждой строке. Честный результат: EVOL с `forall` достигает **паритета** с
-idiomatic Python на dispatch-задачах, а на fanout (прогон #1) **превосходит** (1.83)
-за счёт компактного `spawn`+`forall`. Единичный кейс — не обобщать на весь язык.
-
-**Сравнение прогонов:** FSM и pipeline — стабильно по M1_fair (0.66–0.69). Dispatcher
-в прогоне #2 компактнее за счёт другого шаблона (M1_fair=0.94). **Первый прогон не был
-эффектом утечки — результаты воспроизводятся.** Новые задачи (ratelimiter, cache)
-показывают ту же плоскую форму M1_fair — грамматика généralise beyond 3 паттерна.
+| Задача | M1_fair@10/100/1000/10000 | M2 | M3 | M5 | M5-SMT |
+|--------|-------------------------------|-----|-----|-----|--------|
+| dispatcher (DAG) | **0.94 / 0.94 / 0.94 / 0.94** | 100% | 0.682 | 3 | 2 |
+| FSM (2 shared vars) | **0.66 / 0.66 / 0.66 / —** | 100% | 0.800 | 4 | 2 |
+| pipeline (parallel) | **0.66 / 0.66 / 0.66 / —** | 100% | 0.706 | 4 | 2 |
+| **ratelimiter** (NEW) | **0.67 / 0.67 / 0.67 / —** | 100% | 0.819 | 4 | 3 |
+| **cache** (NEW) | **0.62 / 0.62 / 0.62 / —** | 100% | 0.666 | 4 | 2 |
+| **httprouter** (control) | **0.94** (фикс. 50) | 100% | — | 4 | 2 |
 
 Честный вывод: гипотеза «EVOL масштабируется без ручного развёртывания» **подтверждена**
 (M1_fair плоский, ни одна кривая не суперлинейна, включая N=10000). Но заявление
@@ -238,28 +199,13 @@ idiomatic Python на dispatch-задачах, а на fanout (прогон #1) 
 
 1. **Anti-Goodhart.** Прогон #1 использовал корпус, известный агенту-дизайнеру.
    Прогон #2 (corpus #2) — held-out, seeds зафиксированы, грамматика LOCKED.
-   Результаты воспроизводятся, нет признаков утечки.
-2. **Baseline — два вида, честно.** `naive`-baseline разворачивает N веток dispatch
-   (явный glue-рост) — поэтому M1_naive занижает Python и Artifактно завышает EVOL.
-   Рядом всегда считается **M1_fair** против idiomatic `dict`-диспетчера (O(1) токенов) —
-   это честное сравнение выразительности. ВСЕГДА смотрите на M1_fair, а не только на M1_naive.
-   **Конструкция idiomatic-baseline:** `dict` dispatch (`HANDLERS = {...}`), single-dispatch,
-   генераторы/`range` — стандартные идиомы Python. **Важный риск:** оба baseline (naive и
-   idiomatic) написаны **тем же агентом, что и EVOL** (один автор → остаточный bias: агент
-   мог недотянуть до того, как написал бы опытный питонист, И в пользу, и против EVOL).
-   Поэтому честный вывод — **паритет с разумным baseline**, а не «EVOL бьёт эксперта-Python».
-   Настоящая независимая проверка baseline потребовала бы кода от другого автора/человека.
-3. **M3 энтропия — НЕ независимая мера.** Варианты `forall`/`EXPLICIT` генерируются
-   **одним и тем же генератором** (это разные проходы машины, а не разные авторы).
-   Значение ~0.67–0.82 не доказывает «независимую читаемость» — оно лишь показывает,
-   что компактная форма беднее вариантами. Трактовать как слабое косвенное свидетельство.
-4. **M3/M5 на малых N.** M3 считается только для N≤100 (в прогоне #1) и N≤100 (прогон #2);
-   M5-SMT — только для N≤1000 из-за прогона z3. N=10000 замеряется ТОЛЬКО для dispatcher
-   (прогон #2), остальные — ns_small=[10,100,1000]. Обобщение на N=10000 для FSM/pipeline
-   опирается на плоскую форму на малых N, не на прямом замере.
+2. **Baseline — два вида, честно.** M1_naive разворачивает N веток dispatch — занижает
+   Python. ВСЕГДА смотрите на M1_fair против idiomatic `dict`-диспетчера. Оба baseline
+   написаны тем же агентом, что и EVOL — честный вывод **паритет с разумным baseline**.
+3. **M3 энтропия — НЕ независимая мера.** Варианты генерируются одним генератором.
+4. **M3/M5 на малых N.** M3 только для N≤100; M5-SMT для N≤1000 из-за прогона z3.
 5. **M6 обучаемость** не измерима агентом — требует живых людей.
-6. **Нет основного held-out корпуса 15–20 задач** (roadmap Этап 0) — работали только
-   на scaling-корпусе. Это следующий приоритет.
+6. **Нет основного held-out корпуса 15–20 задач** — следующий приоритет.
 
 ---
 
@@ -267,20 +213,16 @@ idiomatic Python на dispatch-задачах, а на fanout (прогон #1) 
 
 ```
 evol/
-  lexer.py            # токенизация (forall, import, try, raise, FLOAT, type/match, '|', ';')
-  ast_nodes.py        # узлы AST (Import, PyImport, EnumDecl, Match, ForEach, TryCatch, Raise, Float, Spawn(lib=…))
-  parser.py           # рекурсивный спуск -> AST (import, кв.спавн, Call как eff, try/catch/raise, type/match/FFI)
-  interpreter.py      # δ(S)->S′ + модули stdlib + import .evol (разрешение путей) + FFI py.* (sandbox)
-  typechecker.py      # проверки + proven_properties() для M5 (P1–P8, включая исчерпывающий ADT-match) + TryCatch/Raise
-  compiler.py         # транспиляция EVOL → Python (+ try/catch/raise)
-  repl.py             # REPL с hot reload, checkpoint, watch
-  metrics/
-    run_metrics.py    # генератор задач + подсчёт M1/M2/M3/M4/M5/SMT (прогон #1)
-    corpus2.py        # held-out corpus #2 (6 задач, seeds зафиксированы)
-    smt_prove.py      # z3-SMT: проверка гвардов
-    option_c.py       # Rust-базовый вариант + M3 энтропия
+  src/lexer.rs        # токенизация (forall, import, try, raise, FLOAT, type/match, '|', ';')
+  src/ast.rs          # узлы AST с позициями (Import, PyImport, EnumDecl, Match, ForEach, TryCatch, Raise, Float, Spawn)
+  src/parser.rs       # рекурсивный спуск -> AST (import, кв.спавн, Call как eff, try/catch/raise, type/match)
+  src/value.rs        # значения с семантикой Python (repr/str, truthiness, числовая башня, floor-деление)
+  src/interp.rs       # δ(S)->S′ + модули stdlib + import .evol (разрешение путей) + FFI-ошибка как в оригинале
+  src/types.rs        # проверки + proven_properties() для M5 (P1–P8)
+  src/compiler.rs     # транспиляция EVOL → Python (побитово как compiler.py)
+  src/bin/evol.rs     # CLI: run / check / compile
+  tests/golden.rs     # golden-корпус против Python-прототипа (18 тестов)
   samples/            # .evol файлы (симуляции, протоколы, игры, DI, typed_demo)
-  test_*.py           # тесты (suites, все зелёные кроме зависящих от z3/Rust)
 ```
 
 ---
@@ -289,15 +231,21 @@ evol/
 
 Реализовано:
 - [x] Стандартная библиотека (console, random, file, sim, math, string, os)
-- [x] REPL с hot reload (как Lisp)
-- [x] Checkpoint save/restore
 - [x] Транспиляция EVOL → Python
-- [x] Непрерывное время (dt)
 - [x] Error handling (try/catch/raise)
 - [x] FLOAT тип (динамический)
-- [x] Held-out корпус #2 (6 задач, seeds зафиксированы, без утечки)
 - [x] **Типы (аннотации + статическая проверка, опциональная runtime-проверка)** — Этап 7
+- [x] **Ядро на Rust, golden-verified против Python** — v0.3
 
-Осталось:
+Не портировано с Python (следующие шаги):
+- [ ] REPL с hot reload и checkpoint (был `repl.py`)
+- [ ] Актор-рантайм `runtime_concurrent.py` (pub/sub по контенту) — ось конкурентности
+- [ ] Метрики `metrics/` (генераторы корпуса, z3-SMT)
 - [ ] FFI (системные вызовы, сеть)
 - [ ] Основной корпус 15–20 задач
+
+См. [CONTRIBUTING.md](CONTRIBUTING.md) и [CHANGELOG.md](CHANGELOG.md).
+
+## Лицензия
+
+Apache 2.0 — см. [LICENSE](LICENSE).
