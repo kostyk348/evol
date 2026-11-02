@@ -1,0 +1,31 @@
+name: Bug report
+description: Wrong interpreter/typechecker behaviour, a crash, or non-determinism
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the exact .evol program and the wrong output (or the Python reference output).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: evol 0.3.0
+    validations:
+      required: true
+  - type: checkboxes
+    id: repro
+    attributes:
+      label: Reproducibility
+      options:
+        - label: The same spec reproduces this on every run (it is not flaky)
+          required: true

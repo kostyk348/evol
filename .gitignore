@@ -1,6 +1,1 @@
-__pycache__/
-*.pyc
-*.pyo
-.venv/
-venv/
-.DS_Store
+/target

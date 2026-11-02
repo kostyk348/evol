@@ -1,0 +1,27 @@
+name: Feature request
+description: A new effect, stdlib module, grammar form or CLI command
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The task this solves
+      description: What artifact do you need to produce, and why does the current set of kinds not cover it?
+    validations:
+      required: true
+  - type: textarea
+    id: spec-shape
+    attributes:
+      label: Proposed semantics
+      description: The grammar shape, the δ-machine semantics, and how the golden corpus would change.
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: Deterministic (no hidden state in the machine step)
+          required: true
+        - label: Golden corpus updated or untouched
+          required: true
