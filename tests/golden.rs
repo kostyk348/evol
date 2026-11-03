@@ -61,7 +61,11 @@ fn golden_corpus_matches_python() {
                 let src = read_sample(name);
                 let err = parse(&src, &sample_path(name))
                     .expect_err(&format!("{name}: must fail to parse"));
-                assert!(err.0.contains(needle), "{name}: {err:?} lacks {needle:?}");
+                // Голден-строки сгенерированы на машине разработчика и содержат
+                // абсолютный путь репозитория; подставляем локальный префикс.
+                let needle =
+                    needle.replace("/home/z/my-project/work/evol", env!("CARGO_MANIFEST_DIR"));
+                assert!(err.0.contains(&needle), "{name}: {err:?} lacks {needle:?}");
             }
             Case::Typecheck {
                 name,

@@ -42,7 +42,7 @@ jobs:
       - name: Build (release)
         run: cargo build --release
 
-      - name: Smoke: run / check / compile
+      - name: "Smoke: run / check / compile"
         shell: bash
         run: |
           ./target/release/evol run samples/demo_counter.evol boot | grep "n = 5"
