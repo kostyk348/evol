@@ -1,94 +1,102 @@
 <div align="center">
 
-# EVOL — язык переходов состояний (proof-of-concept)
+# EVOL — a state-transition language (proof of concept)
 
-**Экспериментальный язык, оптимизированный под скорость эволюции инженерных идей:
-каждая конструкция — правило перехода абстрактной машины δ(S) → S′, семантика
-задаётся явно, без «магии».**
+**An experimental language optimized for the speed of evolving engineering ideas:
+every construct is a transition rule of an abstract machine δ(S) → S′, the
+semantics is explicit, no "magic".**
 
 [![Release](https://img.shields.io/github/v/release/kostyk348/evol?sort=semver&color=0ea5e9&label=release)](https://github.com/kostyk348/evol/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/kostyk348/evol/ci.yml?branch=master&label=CI)](https://github.com/kostyk348/evol/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-18%20passing%2C%20golden--verified-22c55e)](#порт-на-rust-v03)
+[![tests](https://img.shields.io/badge/tests-18%20passing%2C%20golden--verified-22c55e)](#the-rust-port-v03)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.80%2B-orange)](https://www.rust-lang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
+
+English · [Русский](README.ru.md)
 
 </div>
 
 ---
 
-Проект реализован по цепочке документов `lang-design-spec` → `lang-implementation-roadmap`
-→ `lang-scaling-corpus` (phases 0–7 roadmap). Статус: **Этапы 1–6 выполнены**, ядро
-языка перенесено на Rust (v0.3, golden-verified против Python-прототипа).
+The project follows the document chain `lang-design-spec` →
+`lang-implementation-roadmap` → `lang-scaling-corpus` (roadmap phases 0–7).
+Status: **phases 1–6 complete**, the language core has been ported to Rust
+(v0.3, golden-verified against the Python prototype).
 
-## Что реализовано
+## What is implemented
 
-| Этап | Модуль (Rust) | Суть |
+| Phase | Module (Rust) | What it is |
 |---|---|---|
-| 1 | — (бумага) | EBNF-грамматика + формальная семантика АМ (`δ(S)→S′`) |
-| 2 | `src/lexer.rs`, `src/ast.rs`, `src/parser.rs` | Лексер + AST + рекурсивный спуск |
-| 3 | `src/interp.rs`, `src/value.rs` | AST-walking интерпретатор (`Σ, Μ, Q`) |
-| 4 | `src/types.rs` | Тайпчекер (реально отклоняет ошибки) + доказательщик свойств (M5) |
-| Опция A | `parser.rs`, `interp.rs` | `forall x in expr` + встроенные `range`, `len` — O(1) токенов по N |
-| Опция D | `interp.rs` | `import` внешних модулей + квалифицированный `spawn Lib.Rule` |
-| Float | `lexer.rs`..`compiler.rs` | Тип `FLOAT` (динамический) во всём стеке |
-| Error handling | `parser.rs`, `interp.rs` | `try/catch/raise` — ловит InterpreterError + EvalError |
-| Этап 7 | все модули | **Аннотации типов**: статическая проверка (Int/Str/Bool/Float/Sym/List[T]/Top) + опциональная runtime-проверка через `--enforce-types` |
-| ADT | `ast.rs`, `parser.rs`, `interp.rs`, `types.rs` | `type Name = A(x:T) \| B \| …`, конструкторы `Circle(3.0)`, match по тегу |
-| Транспилятор | `src/compiler.rs` | EVOL → Python (тот же вывод, что у прототипа — golden-verified) |
+| 1 | — (paper) | EBNF grammar + formal abstract-machine semantics (`δ(S)→S′`) |
+| 2 | `src/lexer.rs`, `src/ast.rs`, `src/parser.rs` | Lexer + AST + recursive descent |
+| 3 | `src/interp.rs`, `src/value.rs` | AST-walking interpreter (`Σ, Μ, Q`) |
+| 4 | `src/types.rs` | Typechecker (really rejects errors) + property prover (M5) |
+| Option A | `parser.rs`, `interp.rs` | `forall x in expr` + built-ins `range`, `len` — O(1) tokens in N |
+| Option D | `interp.rs` | `import` of external modules + qualified `spawn Lib.Rule` |
+| Float | `lexer.rs`..`compiler.rs` | `FLOAT` type (dynamic) across the whole stack |
+| Error handling | `parser.rs`, `interp.rs` | `try/catch/raise` — catches InterpreterError + EvalError |
+| Phase 7 | all modules | **Type annotations**: static checking (Int/Str/Bool/Float/Sym/List[T]/Top) + optional runtime enforcement via `--enforce-types` |
+| ADT | `ast.rs`, `parser.rs`, `interp.rs`, `types.rs` | `type Name = A(x:T) \| B \| …`, constructors `Circle(3.0)`, tag matching |
+| Transpiler | `src/compiler.rs` | EVOL → Python (same output as the prototype — golden-verified) |
 
-## Порт на Rust (v0.3)
+## The Rust port (v0.3)
 
-Прототип был на Python 3.10+ (ядро ~2700 строк + REPL/метрики). Ядро языка —
-лексер, парсер, интерпретатор, тайпчекер, транспилятор — перенесено на Rust
-без зависимостей. **Корректность доказана golden-тестами против оригинала**:
-`tests/golden.rs` запускает детерминированный корпус из `samples/` через оба
-интерпретатора и требует побитового совпадения (шаги АМ, store, лог emitted,
-вывод console), плюс ошибки парсера, свойства тайпчекера и вывод транспилятора.
+The prototype was Python 3.10+ (core ~2700 lines + REPL/metrics). The language
+core — lexer, parser, interpreter, typechecker, transpiler — is ported to Rust
+with zero dependencies. **Correctness is proven by golden tests against the
+original**: `tests/golden.rs` runs the deterministic corpus from `samples/`
+through both interpreters and requires bit-identical results (AM steps, store,
+emitted log, console output), plus parser errors, typechecker properties and
+transpiler output.
 
-| | Python-прототип | Rust 0.3 |
+| | Python prototype | Rust 0.3 |
 |---|---|---|
-| зависимости | Python 3.10+ | Rust 1.80+, ноль crates |
-| тесты | suites (z3-зависимые падали) | 18, все зелёные, golden-verified |
-| FFI `import py` | Python-callables, sandbox | недоступен (нет Python-хоста) — та же ошибка «не зарегистрирован» |
-| `random.*` | Mersenne (CPython) | свой SplitMix64 — тот же контракт (seed → детерминированная последовательность), но числа не совпадают с CPython |
-| REPL / актор-рантайм / метрики | `repl.py`, `runtime_concurrent.py`, `metrics/` | **не портированы** — следующий шаг (см. CHANGELOG) |
+| dependencies | Python 3.10+ | Rust 1.80+, zero crates |
+| tests | suites (z3-dependent ones failed) | 18, all green, golden-verified |
+| FFI `import py` | Python callables, sandbox | unavailable (no Python host) — same "not registered" error |
+| `random.*` | Mersenne (CPython) | own SplitMix64 — same contract (seed → deterministic sequence), but the numbers differ from CPython |
+| REPL / actor runtime / metrics | `repl.py`, `runtime_concurrent.py`, `metrics/` | **not ported** — next step (see CHANGELOG) |
 
-Сборка и запуск:
+Build and run:
 
 ```bash
 cargo build --release
-evol run samples/demo_counter.evol boot     # исполнить (13 шагов, n=5)
-evol check samples/tc_ok.evol               # тайпчекер + доказанные свойства
+evol run samples/demo_counter.evol boot     # execute (13 steps, n=5)
+evol check samples/tc_ok.evol               # typechecker + proven properties
 evol compile samples/valid1_dispatcher.evol # EVOL → Python
 ```
 
 ---
 
-## Модель исполнения
+## Execution model
 
-Состояние абстрактной машины `S = (Σ, Μ, Q)`:
-- `Σ` — store (`name → value`);
-- `Μ` — очередь сообщений;
-- `Q` — множество установленных правил `when <pat> => <eff>`.
+The abstract machine state is `S = (Σ, Μ, Q)`:
+- `Σ` — the store (`name → value`);
+- `Μ` — the message queue;
+- `Q` — the set of installed rules `when <pat> => <eff>`.
 
-Шаг `δ`: взять головное сообщение, найти подходящее правило (по тегу паттерна,
-макс. приоритет), выполнить эффект. Несовпавшие сообщения отбрасываются.
+A `δ` step: take the head message, find a matching rule (by pattern tag, max
+priority), run the effect. Non-matching messages are dropped.
 
-Эффекты:
+Effects:
 `assign (x := e)` · `emit (m)` · `spawn Name` · `retract Name` ·
-`if c then … else …` · `seq(a,b)` · `par(a,b)` (отказ при конфликте имён) ·
-`choice(a,b)` · `loop(guard, body)` · `forall x in expr { … }` · встроенные `range`, `len`, `abs`, `min`, `max`, `str`, `int`, `float`.
-`try { … } catch var { … }` · `raise expr` — ловит InterpreterError + EvalError.
+`if c then … else …` · `seq(a,b)` · `par(a,b)` (fails on name conflict) ·
+`choice(a,b)` · `loop(guard, body)` · `forall x in expr { … }` · built-ins
+`range`, `len`, `abs`, `min`, `max`, `str`, `int`, `float`.
+`try { … } catch var { … }` · `raise expr` — catches InterpreterError + EvalError.
 
-Модули стандартной библиотеки: `console` (print), `random` (int/pick/shuffle),
-`file` (read/write/exists), `sim` (step/set_seed), `math` (sqrt/pow/sin/cos/pi/floor/ceil/log),
-`string` (split/join/upper/lower/contains/replace/len/at/substr), `os` (listdir/getcwd/path_exists/mkdir).
+Stdlib modules: `console` (print), `random` (int/pick/shuffle),
+`file` (read/write/exists), `sim` (step/set_seed), `math`
+(sqrt/pow/sin/cos/pi/floor/ceil/log), `string`
+(split/join/upper/lower/contains/replace/len/at/substr), `os`
+(listdir/getcwd/path_exists/mkdir).
 
-Импорт: `import ModuleName` (из файла `modulename.evol`). Квалифицированный спавн:
-`spawn Lib.Rule` (проверяется тайпчекером, срабатывает из внешнего модуля).
+Imports: `import ModuleName` (from the file `modulename.evol`). Qualified
+spawn: `spawn Lib.Rule` (checked by the typechecker, fires from the external
+module).
 
-Пример (`samples/demo_counter.evol`):
+Example (`samples/demo_counter.evol`):
 ```evol
 lib demo {
   rule start = when boot => {
@@ -104,148 +112,152 @@ lib demo {
 
 ---
 
-## Статическая типизация (Этап 7)
+## Static typing (Phase 7)
 
-Аннотации типов **опциональны** и не меняют динамическую семантику исполнения —
-они управляют статическим тайпчекером (`src/types.rs`) и, при желании,
-runtime-проверкой (`evol run --enforce-types`).
+Type annotations are **optional** and do not change the dynamic semantics —
+they drive the static typechecker (`src/types.rs`) and, if requested, runtime
+enforcement (`evol run --enforce-types`).
 
-Типы: `Int`, `Str`, `Bool`, `Float`, `Sym`, `List[T]`, `Top` (верхний тип).
-Числовая совместимость: `Int <: Float` (целое можно присвоить вещественному).
-Система **постепенная** (gradual): неаннотированный код типизируется как `Top` и
-проходит проверку; проверяются только те места, где тип известен с обеих сторон.
+Types: `Int`, `Str`, `Bool`, `Float`, `Sym`, `List[T]`, `Top` (the top type).
+Numeric compatibility: `Int <: Float` (an int can be assigned to a float).
+The system is **gradual**: unannotated code is typed as `Top` and passes
+checking; only positions where the type is known on both sides are checked.
 
-Синтаксис:
+Syntax:
 
 ```evol
 lib t {
   rule start = when boot => {
-    n : Int := 0                       # аннотация переменной
-    xs : List[Int] := [1, 2, 3]        # список с элементом типа
-    add := fun (a : Int, b : Int) -> Int => a + b   # типы параметров + результата
+    n : Int := 0                       # variable annotation
+    xs : List[Int] := [1, 2, 3]        # list with an element type
+    add := fun (a : Int, b : Int) -> Int => a + b   # parameter + return types
     total := add(n, 3)
     emit (go, total)
   }
-  rule process = when (go, value : Int) => {   # аннотация поля входящего сообщения
+  rule process = when (go, value : Int) => {   # annotation of an incoming message field
     emit (done)
   }
 }
 ```
 
-Что отклоняется:
-- присваивание значения несовместимого типа (`x : Int := "s"`);
-- аргумент вызова, не совпадающий с аннотированным параметром (`f("s")` при `f(x:Int)`);
-- тип результата функции, не совпадающий с `-> T`;
-- несовместимые операнды арифметики/сравнения.
+What gets rejected:
+- assigning a value of an incompatible type (`x : Int := "s"`);
+- a call argument not matching the annotated parameter (`f("s")` given `f(x:Int)`);
+- a function result not matching `-> T`;
+- incompatible operands of arithmetic/comparison.
 
-Runtime-проверка (`--enforce-types`) ловит те же несовпадения во время исполнения
-(включая аннотированные поля сообщений из `match`). По умолчанию выключена — язык
-остаётся динамическим, как и задумано для proof-of-concept.
+Runtime enforcement (`--enforce-types`) catches the same mismatches at runtime
+(including annotated message fields from `match`). It is off by default — the
+language stays dynamic, as intended for a proof of concept.
 
-## Доказательщик свойств (M5)
+## Property prover (M5)
 
-`evol check` печатает свойства, автоматически доказуемые из одного определения
-программы (P1–P8): валидность spawn/retract, типобезопасность, достижимость всех
-правил из `boot` (нет dead-кода), покрытие emit-тегов обработчиками, детерминизм
-выбора правила (нет конфликта when-тегов), исчерпывающий match по ADT, арность
-ADT-конструкторов.
+`evol check` prints the properties automatically provable from a single
+program definition (P1–P8): spawn/retract validity, type safety, reachability
+of every rule from `boot` (no dead code), emit-tag coverage by handlers,
+determinism of rule selection (no conflicting when-tags), exhaustive ADT
+match, ADT constructor arity.
 
-## Результаты метрик (прогоны Python-прототипа)
+## Metric results (Python-prototype runs)
 
-> Метрики M1–M5 и corpus #2 измерены на Python-прототипе (`metrics/`, не портирован).
-> Языковая семантика не менялась (golden-verified), поэтому результаты остаются
-> релевантными для грамматики; переномеровка рантайма их не касается.
+> Metrics M1–M5 and corpus #2 were measured on the Python prototype
+> (`metrics/`, not ported). The language semantics did not change
+> (golden-verified), so the results remain relevant to the grammar;
+> runtime renumbering does not affect them.
 
-### Прогон #1 (scaling-корпус, с утечкой)
+### Run #1 (scaling corpus, leaked)
 
-> Честность метрик (см. оговорку #2): baseline Python бывает двух видов.
-> **naive** — явное развёртывание N веток dispatch; **idiomatic** — `dict`/функция-диспетчер
-> за O(1) токенов. M1 против naive занижает Python — смотреть **M1_fair**.
+> Metric fairness (see caveat #2): the Python baseline comes in two flavors.
+> **naive** — explicitly unrolling N dispatch branches; **idiomatic** — a
+> `dict`/dispatcher function at O(1) tokens. M1 vs naive underestimates
+> Python — look at **M1_fair**.
 
-| Метрика | Зона | Сырое число | Форма M(N) |
+| Metric | Zone | Raw numbers | Shape M(N) |
 |---|---|---|---|
-| M1 vs naive-Py (unrolled) | отлично* | dispatcher=0.61, FSM=0.11, pipeline=0.18, fanout=0.19, router=0.18 | плоская |
-| **M1_fair vs idiomatic-Py (O(1))** | хорошо (паритет) | dispatcher=0.61, FSM=0.69, pipeline=0.69, fanout=**1.83**, router=0.69 | плоская |
-| M1 компрессия vs Rust | отлично | dispatcher=0.49, FSM=0.12, pipeline=0.24, fanout=0.21, router=0.23 | плоская |
-| M2 рекомбинация | отлично | 100% пар компонуются | плоская |
-| M3 энтропия | терпимо/хорошо | ratio=0.70–0.80 к Python | плоская |
-| M4 сем. компрессия | стабильно | 2–17 токенов/шаг АМ | плоская |
-| M5 стат. глубина вывода (УТП) | хорошо | 6–8 свойств/прогон | плоская |
-| M5-SMT (z3) | отлично | 0–2 по задачам | н/д |
+| M1 vs naive-Py (unrolled) | excellent* | dispatcher=0.61, FSM=0.11, pipeline=0.18, fanout=0.19, router=0.18 | flat |
+| **M1_fair vs idiomatic-Py (O(1))** | good (parity) | dispatcher=0.61, FSM=0.69, pipeline=0.69, fanout=**1.83**, router=0.69 | flat |
+| M1 compression vs Rust | excellent | dispatcher=0.49, FSM=0.12, pipeline=0.24, fanout=0.21, router=0.23 | flat |
+| M2 recombination | excellent | 100% of pairs compose | flat |
+| M3 entropy | fair/good | ratio=0.70–0.80 vs Python | flat |
+| M4 semantic compression | stable | 2–17 tokens per AM step | flat |
+| M5 static inference depth (USP) | good | 6–8 properties per run | flat |
+| M5-SMT (z3) | excellent | 0–2 per task | n/a |
 
-\* M1 против naive завышен искусственно (оговорка #2).
+\* M1 vs naive is inflated artificially (caveat #2).
 
-### Прогон #2 (held-out corpus, без утечки)
+### Run #2 (held-out corpus, no leakage)
 
-Seeds зафиксированы ДО замера: `20260713-1`..`20260713-5`. Грамматика LOCKED.
+Seeds fixed BEFORE the measurement: `20260713-1`..`20260713-5`. Grammar LOCKED.
 
-| Задача | M1_fair@10/100/1000/10000 | M2 | M3 | M5 | M5-SMT |
+| Task | M1_fair@10/100/1000/10000 | M2 | M3 | M5 | M5-SMT |
 |--------|-------------------------------|-----|-----|-----|--------|
 | dispatcher (DAG) | **0.94 / 0.94 / 0.94 / 0.94** | 100% | 0.682 | 3 | 2 |
 | FSM (2 shared vars) | **0.66 / 0.66 / 0.66 / —** | 100% | 0.800 | 4 | 2 |
 | pipeline (parallel) | **0.66 / 0.66 / 0.66 / —** | 100% | 0.706 | 4 | 2 |
 | **ratelimiter** (NEW) | **0.67 / 0.67 / 0.67 / —** | 100% | 0.819 | 4 | 3 |
 | **cache** (NEW) | **0.62 / 0.62 / 0.62 / —** | 100% | 0.666 | 4 | 2 |
-| **httprouter** (control) | **0.94** (фикс. 50) | 100% | — | 4 | 2 |
+| **httprouter** (control) | **0.94** (fixed 50) | 100% | — | 4 | 2 |
 
-Честный вывод: гипотеза «EVOL масштабируется без ручного развёртывания» **подтверждена**
-(M1_fair плоский, ни одна кривая не суперлинейна, включая N=10000). Но заявление
-«EVOL в разы компактнее Python» **неверно** против idiomatic baseline — там паритет.
-Ценность EVOL — в детерминированной АМ-семантике и M5-выводе, а не в токенах.
-
----
-
-## Важные оговорки
-
-1. **Anti-Goodhart.** Прогон #1 использовал корпус, известный агенту-дизайнеру.
-   Прогон #2 (corpus #2) — held-out, seeds зафиксированы, грамматика LOCKED.
-2. **Baseline — два вида, честно.** M1_naive разворачивает N веток dispatch — занижает
-   Python. ВСЕГДА смотрите на M1_fair против idiomatic `dict`-диспетчера. Оба baseline
-   написаны тем же агентом, что и EVOL — честный вывод **паритет с разумным baseline**.
-3. **M3 энтропия — НЕ независимая мера.** Варианты генерируются одним генератором.
-4. **M3/M5 на малых N.** M3 только для N≤100; M5-SMT для N≤1000 из-за прогона z3.
-5. **M6 обучаемость** не измерима агентом — требует живых людей.
-6. **Нет основного held-out корпуса 15–20 задач** — следующий приоритет.
+Honest conclusion: the hypothesis "EVOL scales without manual unrolling" is
+**confirmed** (M1_fair is flat, no curve is superlinear, including N=10000).
+But the claim "EVOL is several times more compact than Python" is **wrong**
+against the idiomatic baseline — there it is parity. EVOL's value is in the
+deterministic AM semantics and M5 inference, not in tokens.
 
 ---
 
-## Структура
+## Important caveats
+
+1. **Anti-Goodhart.** Run #1 used a corpus known to the agent-designer.
+   Run #2 (corpus #2) is held-out, seeds fixed, grammar LOCKED.
+2. **Two baselines, honestly.** M1_naive unrolls N dispatch branches — it
+   underestimates Python. ALWAYS look at M1_fair against the idiomatic
+   `dict` dispatcher. Both baselines were written by the same agent as EVOL —
+   the honest conclusion is **parity with a reasonable baseline**.
+3. **M3 entropy is NOT an independent measure.** Variants come from one generator.
+4. **M3/M5 at small N.** M3 only for N≤100; M5-SMT for N≤1000 because of the z3 run.
+5. **M6 learnability** is not measurable by an agent — it requires live humans.
+6. **No main held-out corpus of 15–20 tasks** — the next priority.
+
+---
+
+## Structure
 
 ```
 evol/
-  src/lexer.rs        # токенизация (forall, import, try, raise, FLOAT, type/match, '|', ';')
-  src/ast.rs          # узлы AST с позициями (Import, PyImport, EnumDecl, Match, ForEach, TryCatch, Raise, Float, Spawn)
-  src/parser.rs       # рекурсивный спуск -> AST (import, кв.спавн, Call как eff, try/catch/raise, type/match)
-  src/value.rs        # значения с семантикой Python (repr/str, truthiness, числовая башня, floor-деление)
-  src/interp.rs       # δ(S)->S′ + модули stdlib + import .evol (разрешение путей) + FFI-ошибка как в оригинале
-  src/types.rs        # проверки + proven_properties() для M5 (P1–P8)
-  src/compiler.rs     # транспиляция EVOL → Python (побитово как compiler.py)
+  src/lexer.rs        # tokenization (forall, import, try, raise, FLOAT, type/match, '|', ';')
+  src/ast.rs          # AST nodes with positions (Import, PyImport, EnumDecl, Match, ForEach, TryCatch, Raise, Float, Spawn)
+  src/parser.rs       # recursive descent -> AST (import, qualified spawn, Call as eff, try/catch/raise, type/match)
+  src/value.rs        # values with Python semantics (repr/str, truthiness, numeric tower, floor division)
+  src/interp.rs       # δ(S)->S′ + stdlib modules + import .evol (path resolution) + FFI error as in the original
+  src/types.rs        # checks + proven_properties() for M5 (P1–P8)
+  src/compiler.rs     # EVOL → Python transpilation (bit-identical to compiler.py)
   src/bin/evol.rs     # CLI: run / check / compile
-  tests/golden.rs     # golden-корпус против Python-прототипа (18 тестов)
-  samples/            # .evol файлы (симуляции, протоколы, игры, DI, typed_demo)
+  tests/golden.rs     # golden corpus against the Python prototype (18 tests)
+  samples/            # .evol files (simulations, protocols, games, DI, typed_demo)
 ```
 
 ---
 
-## Дальше
+## Roadmap
 
-Реализовано:
-- [x] Стандартная библиотека (console, random, file, sim, math, string, os)
-- [x] Транспиляция EVOL → Python
+Done:
+- [x] Standard library (console, random, file, sim, math, string, os)
+- [x] EVOL → Python transpilation
 - [x] Error handling (try/catch/raise)
-- [x] FLOAT тип (динамический)
-- [x] **Типы (аннотации + статическая проверка, опциональная runtime-проверка)** — Этап 7
-- [x] **Ядро на Rust, golden-verified против Python** — v0.3
+- [x] FLOAT type (dynamic)
+- [x] **Types (annotations + static checking, optional runtime enforcement)** — Phase 7
+- [x] **Core in Rust, golden-verified against Python** — v0.3
 
-Не портировано с Python (следующие шаги):
-- [ ] REPL с hot reload и checkpoint (был `repl.py`)
-- [ ] Актор-рантайм `runtime_concurrent.py` (pub/sub по контенту) — ось конкурентности
-- [ ] Метрики `metrics/` (генераторы корпуса, z3-SMT)
-- [ ] FFI (системные вызовы, сеть)
-- [ ] Основной корпус 15–20 задач
+Not ported from Python (next steps):
+- [ ] REPL with hot reload and checkpoints (`repl.py`)
+- [ ] Actor runtime `runtime_concurrent.py` (content-addressed pub/sub) — the concurrency axis
+- [ ] Metrics `metrics/` (corpus generators, z3-SMT)
+- [ ] FFI (system calls, networking)
+- [ ] Main held-out corpus of 15–20 tasks
 
-См. [CONTRIBUTING.md](CONTRIBUTING.md) и [CHANGELOG.md](CHANGELOG.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 
-## Лицензия
+## License
 
-Apache 2.0 — см. [LICENSE](LICENSE).
+Apache 2.0 — see [LICENSE](LICENSE).
