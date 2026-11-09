@@ -8,7 +8,7 @@
 
 [![Release](https://img.shields.io/github/v/release/kostyk348/evol?sort=semver&color=0ea5e9&label=release)](https://github.com/kostyk348/evol/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/kostyk348/evol/ci.yml?branch=master&label=CI)](https://github.com/kostyk348/evol/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-18%20passing%2C%20golden--verified-22c55e)](#порт-на-rust-v03)
+[![tests](https://img.shields.io/badge/tests-51%20passing%2C%20golden--%20%2B%20property--verified-22c55e)](#порт-на-rust-v03)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.80%2B-orange)](https://www.rust-lang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
@@ -22,6 +22,20 @@
 Проект реализован по цепочке документов `lang-design-spec` → `lang-implementation-roadmap`
 → `lang-scaling-corpus` (phases 0–7 roadmap). Статус: **Этапы 1–6 выполнены**, ядро
 языка перенесено на Rust (v0.3, golden-verified против Python-прототипа).
+
+## Что такое EVOL (и чем он не является)
+
+EVOL — **DSL для процессов с состояниями**: модель, а не универсальный язык.
+Одна спецификация проходит всю цепочку: *описано → скомпилировано →
+протестировано → визуализировано → экспортировано в документацию*.
+Формальная операционная семантика абстрактной машины — конфигурации
+`(Σ, μ, Q, κ)`, отношение перехода δ, терминация (нормальная / по лимиту
+шагов / по ошибке / отклонение сообщения), условное завершение,
+детерминизм и чистота — записана в
+**[docs/semantics.md](docs/semantics.md)** (выведена из реальной
+реализации, честно об ограничениях) и закреплена тестами, включая
+рандомизированные property-тесты детерминизма, чистоты и терминации на
+сгенерированных корректных программах.
 
 ## Что реализовано
 
@@ -224,6 +238,8 @@ evol/
   src/compiler.rs     # транспиляция EVOL → Python (побитово как compiler.py)
   src/bin/evol.rs     # CLI: run / check / compile
   tests/golden.rs     # golden-корпус против Python-прототипа (18 тестов)
+  tests/properties.rs # семантические unit-тесты + property-тесты (33): детерминизм, чистота, терминация
+  docs/semantics.md   # формальная операционная семантика + таблица трассировки spec ⇄ тесты
   samples/            # .evol файлы (симуляции, протоколы, игры, DI, typed_demo)
 ```
 

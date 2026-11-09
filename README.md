@@ -8,7 +8,7 @@ semantics is explicit, no "magic".**
 
 [![Release](https://img.shields.io/github/v/release/kostyk348/evol?sort=semver&color=0ea5e9&label=release)](https://github.com/kostyk348/evol/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/kostyk348/evol/ci.yml?branch=master&label=CI)](https://github.com/kostyk348/evol/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-18%20passing%2C%20golden--verified-22c55e)](#the-rust-port-v03)
+[![tests](https://img.shields.io/badge/tests-51%20passing%2C%20golden--%20%2B%20property--verified-22c55e)](#the-rust-port-v03)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.80%2B-orange)](https://www.rust-lang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
@@ -23,6 +23,19 @@ The project follows the document chain `lang-design-spec` →
 `lang-implementation-roadmap` → `lang-scaling-corpus` (roadmap phases 0–7).
 Status: **phases 1–6 complete**, the language core has been ported to Rust
 (v0.3, golden-verified against the Python prototype).
+
+## What EVOL is (and is not)
+
+EVOL is a **DSL for stateful processes** — a model, not a general-purpose
+language. One specification travels the whole chain: *described → compiled →
+tested → visualized → exported to documentation*. The formal operational
+semantics of the abstract machine — configurations `(Σ, μ, Q, κ)`, the δ
+transition relation, termination (normal / budget / error halt / message
+rejection), conditional completion, determinism and purity — is written down
+in **[docs/semantics.md](docs/semantics.md)** (derived from the actual
+implementation, honest about limitations) and pinned by tests, including
+randomized property tests for determinism, purity and termination on
+generated well-formed programs.
 
 ## What is implemented
 
@@ -234,6 +247,8 @@ evol/
   src/compiler.rs     # EVOL → Python transpilation (bit-identical to compiler.py)
   src/bin/evol.rs     # CLI: run / check / compile
   tests/golden.rs     # golden corpus against the Python prototype (18 tests)
+  tests/properties.rs # semantic unit tests + property tests (33): determinism, purity, termination
+  docs/semantics.md   # formal operational semantics + spec ⇄ test trace table
   samples/            # .evol files (simulations, protocols, games, DI, typed_demo)
 ```
 

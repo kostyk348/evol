@@ -3,6 +3,44 @@
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Formal operational semantics** — `docs/semantics.md`: configurations
+  `(Σ, μ, Q, κ)`, the δ step relation, effect and expression rules,
+  termination (normal, budget, error halt, rejection/drop,
+  deadlock-freedom), conditional completion, determinism and purity —
+  derived from the actual implementation (honest about quirks, e.g. no
+  boolean literals, `choice` fallback unreachable, floor division), with a
+  spec ⇄ test trace table.
+- **Semantic + property test suite** — `tests/properties.rs` (33 tests):
+  - `sem_s*` unit tests pinning every rule of the trace table;
+  - `prop_determinism_same_config_same_result` — same configuration and
+    input sequence → identical final configuration (full sample corpus +
+    randomized programs with randomized bootstraps, including error
+    outcomes);
+  - `prop_purity_no_hidden_state_or_effects` — a transition changes only
+    the declared process state (final store keys ⊆ declared names;
+    functional evaluation independent of hidden context state; no
+    cross-run contamination);
+  - `prop_termination_well_formed_programs` — randomized well-formed
+    programs (hand-rolled generator, zero new dependencies) terminate
+    under a step budget with stable outcomes.
+
+### Fixed
+
+- `par` name-conflict errors are now deterministic: the reported key was
+  picked in `HashSet` iteration order (varies between runs); keys are now
+  visited in sorted order. Found by the new determinism property; golden
+  outputs are unaffected.
+
+### Changed
+
+- Test count 18 → 51 (18 golden + 33 semantic/property); README badge and
+  structure updated; repositioning section ("DSL for stateful processes —
+  a model, not a general-purpose language") added to both READMEs.
+
 ## [0.3.0] — 2026-11-02
 
 ### Added — Rust port of the language core (replaces the Python implementation)
