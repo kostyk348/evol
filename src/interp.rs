@@ -1060,7 +1060,11 @@ fn eval_eff(node: &Eff, sigma: &Store, ctx: &mut Ctx) -> Result<EffResult, EErro
             let ra = eval_eff(a, sigma, ctx)?;
             let rb = eval_eff(b, sigma, ctx)?;
             let mut merged = sigma.clone();
-            let keys: HashSet<&String> = ra.sigma.keys().chain(rb.sigma.keys()).collect();
+            // BTreeSet, not HashSet: the iteration order must not leak into
+            // which conflicting key is named first in the error (property:
+            // identical configurations -> identical outcomes)
+            let keys: std::collections::BTreeSet<&String> =
+                ra.sigma.keys().chain(rb.sigma.keys()).collect();
             for k in keys {
                 let va = ra.sigma.get(k);
                 let vb = rb.sigma.get(k);
